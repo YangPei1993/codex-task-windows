@@ -25,7 +25,10 @@ enum TaskWindowsApp {
             let details = try feed.fetch(watching: watched)
             let distinct = Set(sessions.map(\.id)).count == sessions.count
             let messageCount = details.messages.values.reduce(0) { $0 + $1.count }
+            let eventCount = details.activities.values.reduce(0) { $0 + $1.count }
+            let summaryCount = details.activities.values.reduce(0) { $0 + $1.filter { $0.kind == .summary }.count }
             print("会话 \(sessions.count) 条，进行中 \(sessions.filter { $0.status == .running }.count) 条，窗口样本消息 \(messageCount) 条。")
+            print("本轮活动样本 \(eventCount) 条，其中公开思考摘要 \(summaryCount) 条。")
             guard !sessions.isEmpty, distinct, messageCount > 0 else { exit(1) }
             guard sessions.allSatisfy({ $0.deepLink != nil }), let link = sessions.first?.deepLink,
                   let handler = CodexLink.application(for: link) else {
@@ -41,7 +44,7 @@ enum TaskWindowsApp {
 }
 
 @MainActor
-final class AppDelegate: NSObject, NSApplicationDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     private let store = SessionStore()
     private lazy var windows = SessionWindows(store: store)
     private var refreshLoop: Task<Void, Never>?
@@ -70,6 +73,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func showOverview() { windows.showOverview() }
     @objc private func tileWindows() { windows.tile() }
     @objc private func refresh() { store.requestRefresh() }
+    @objc private func undoEdit() { editingUndoManager?.undo() }
+    @objc private func redoEdit() { editingUndoManager?.redo() }
+
+    private var editingUndoManager: UndoManager? {
+        NSApp.keyWindow?.firstResponder?.undoManager
+    }
+
+    func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
+        switch menuItem.action {
+        case #selector(undoEdit): editingUndoManager?.canUndo == true
+        case #selector(redoEdit): editingUndoManager?.canRedo == true
+        default: true
+        }
+    }
 
     private func installMenus() {
         let bar = NSMenu()
@@ -86,6 +103,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         let editMenu = NSMenu(title: "编辑")
         editItem.submenu = editMenu
+        editMenu.addItem(withTitle: "撤销", action: #selector(undoEdit), keyEquivalent: "z").target = self
+        let redo = editMenu.addItem(withTitle: "重做", action: #selector(redoEdit), keyEquivalent: "z")
+        redo.keyEquivalentModifierMask = [.command, .shift]
+        redo.target = self
+        editMenu.addItem(.separator())
         editMenu.addItem(withTitle: "剪切", action: #selector(NSText.cut(_:)), keyEquivalent: "x")
         editMenu.addItem(withTitle: "复制", action: #selector(NSText.copy(_:)), keyEquivalent: "c")
         editMenu.addItem(withTitle: "粘贴", action: #selector(NSText.paste(_:)), keyEquivalent: "v")

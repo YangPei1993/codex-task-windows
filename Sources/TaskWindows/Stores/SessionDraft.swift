@@ -19,13 +19,8 @@ final class SessionDraft {
     var text = ""
     private(set) var sending = false
     private(set) var feedback: Feedback?
-    private var latest: Pending?
-
-    private struct Pending {
-        let text: String
-        let submittedAt: Date
-        let previousIDs: Set<String>
-    }
+    private(set) var outbox = SessionOutbox()
+    private var lastSubmittedID: UUID?
 
     var canSend: Bool {
         !sending && !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -35,32 +30,33 @@ final class SessionDraft {
     func send(to session: Session, previous: [SessionMessage], refresh: @escaping () -> Void) {
         guard canSend, session.acceptsMessages else { return }
         let submitted = text
-        let pending = Pending(text: submitted.trimmingCharacters(in: .whitespacesAndNewlines),
-                              submittedAt: .now, previousIDs: Set(previous.map(\.id)))
+        let id = outbox.submit(submitted, at: .now, knownMessages: previous)
+        lastSubmittedID = id
         sending = true
         feedback = nil
         Task {
             defer { sending = false }
             do {
                 try await CodexQueue.submit(submitted, to: session)
-                latest = pending
-                feedback = .queued
+                feedback = outbox.markQueued(id) ? .queued : .received
                 if text == submitted { text = "" }
                 refresh()
             } catch {
-                feedback = .failed(error.localizedDescription)
+                if outbox.remove(id) {
+                    feedback = .failed(error.localizedDescription)
+                } else {
+                    feedback = .received
+                    if text == submitted { text = "" }
+                }
             }
         }
     }
 
     func observe(_ messages: [SessionMessage]) {
-        guard let latest, case .queued = feedback else { return }
-        if messages.contains(where: {
-            $0.kind == .userMessage && $0.date >= latest.submittedAt
-                && !latest.previousIDs.contains($0.id) && $0.text == latest.text
-        }) {
+        guard !outbox.messages.isEmpty else { return }
+        let delivered = outbox.reconcile(messages)
+        if let lastSubmittedID, delivered.contains(lastSubmittedID) {
             feedback = .received
-            self.latest = nil
         }
     }
 }

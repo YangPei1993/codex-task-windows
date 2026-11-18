@@ -11,6 +11,7 @@ struct Session: Identifiable {
     let status: SessionStatus
     let lastAction: String?
     let acceptsMessages: Bool
+    let currentTurnID: String?
 
     var sortDate: Date { max(updated, activity ?? updated, started ?? updated) }
 
@@ -57,6 +58,10 @@ enum SessionStatus {
 }
 
 struct SessionMessage: Identifiable, Equatable {
+    enum QuestionContext {
+        case related, previous
+    }
+
     enum Kind: String {
         case userMessage, progress, result
 
@@ -74,4 +79,13 @@ struct SessionMessage: Identifiable, Equatable {
     let kind: Kind
     let date: Date
     let text: String
+    var questionContext: QuestionContext?
+
+    var questionLabel: String {
+        switch questionContext {
+        case .related: "关联提问"
+        case .previous: "最近一次提问"
+        case nil: kind.label
+        }
+    }
 }

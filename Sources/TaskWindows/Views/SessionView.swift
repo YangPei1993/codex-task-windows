@@ -9,6 +9,7 @@ struct SessionView: View {
 
     private var session: Session { store.sessions.first { $0.id == original.id } ?? original }
     private var items: [SessionMessage] { store.messages[original.id] ?? [] }
+    private var activities: [TurnActivity] { store.activities[original.id] ?? [] }
     private var pinned: Bool { store.pinned.contains(original.id) }
 
     var body: some View {
@@ -22,10 +23,12 @@ struct SessionView: View {
                     .lineLimit(2)
                     .padding(8)
             }
-            if items.isEmpty {
+            if items.isEmpty && activities.isEmpty && draft.outbox.messages.isEmpty {
                 emptyTranscript
             } else {
-                SessionTranscript(items: items)
+                SessionTranscript(items: items, activities: activities, outgoing: draft.outbox.messages,
+                                  turnID: session.currentTurnID,
+                                  running: session.status == .running)
             }
             Divider()
             composer
@@ -87,31 +90,9 @@ struct SessionView: View {
     @ViewBuilder
     private var composer: some View {
         if session.acceptsMessages {
-            VStack(alignment: .leading, spacing: 6) {
-                HStack(alignment: .bottom, spacing: 8) {
-                    TextField("给这条会话发消息…", text: $draft.text, axis: .vertical)
-                        .lineLimit(2...6)
-                        .textFieldStyle(.roundedBorder)
-                        .accessibilityLabel("会话消息")
-                    Button {
-                        draft.send(to: session, previous: items, refresh: store.requestRefresh)
-                    } label: {
-                        Label(draft.sending ? "发送中" : "发送", systemImage: "arrow.up.circle")
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .disabled(!draft.canSend)
-                    .keyboardShortcut(.return, modifiers: [.command])
-                    .help("排队发送到当前 Codex 会话（⌘ Return）")
-                }
-                if draft.text.utf8.count > CodexQueue.messageLimit {
-                    Text("单条消息最多 64 KB。").foregroundStyle(.orange)
-                } else if let feedback = draft.feedback {
-                    feedbackLabel(feedback)
-                }
+            SessionComposer(draft: draft) {
+                draft.send(to: session, previous: items, refresh: store.requestRefresh)
             }
-            .font(.caption)
-            .padding(.horizontal, 15)
-            .padding(.vertical, 9)
         } else {
             Text("此会话可在原 Codex 窗口中回复。")
                 .font(.caption)
@@ -122,21 +103,4 @@ struct SessionView: View {
         }
     }
 
-    @ViewBuilder
-    private func feedbackLabel(_ feedback: SessionDraft.Feedback) -> some View {
-        switch feedback {
-        case .queued:
-            Label(feedback.label, systemImage: "clock")
-                .foregroundStyle(.secondary)
-                .help("Codex 按会话队列处理。原会话尚未载入时，可点「回 Codex」。")
-        case .received:
-            Label(feedback.label, systemImage: "checkmark.circle")
-                .foregroundStyle(.teal)
-        case .failed:
-            Label(feedback.label, systemImage: "exclamationmark.circle")
-                .foregroundStyle(.orange)
-                .lineLimit(2)
-                .help(feedback.label)
-        }
-    }
 }

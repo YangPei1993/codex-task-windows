@@ -7,6 +7,7 @@ final class SessionStore {
     private let reader = FeedReader(directory: SessionStore.codexDirectory)
     private(set) var sessions: [Session] = []
     private(set) var messages: [String: [SessionMessage]] = [:]
+    private(set) var activities: [String: [TurnActivity]] = [:]
     private(set) var watching: Set<String> = []
     private(set) var pinned: Set<String> = []
     private(set) var lastRefresh: Date?
@@ -30,6 +31,7 @@ final class SessionStore {
         watching.remove(id)
         pinned.remove(id)
         messages[id] = nil
+        activities[id] = nil
     }
 
     func setPinned(_ id: String, _ enabled: Bool) {
@@ -55,6 +57,7 @@ final class SessionStore {
             let snapshot = try await reader.fetch(watching: watching)
             sessions = snapshot.sessions
             messages = snapshot.messages.filter { watching.contains($0.key) }
+            activities = snapshot.activities.filter { watching.contains($0.key) }
             for (id, items) in messages {
                 drafts[id]?.observe(items)
             }
