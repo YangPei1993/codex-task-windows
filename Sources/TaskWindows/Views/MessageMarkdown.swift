@@ -56,20 +56,14 @@ struct MessageMarkdown: View, Equatable {
         switch block.kind {
         case .header(let level):
             Text(block.text)
-                .font(.system(size: level <= 2 ? 17 : 14, weight: .semibold))
+                .font(.system(size: level <= 2 ? 16.5 : 14, weight: .semibold))
                 .accessibilityAddTraits(.isHeader)
-        case .codeBlock:
-            ScrollView(.horizontal) {
-                Text(block.text)
-                    .font(.system(size: 12, design: .monospaced))
-                    .fixedSize(horizontal: true, vertical: true)
-                    .padding(9)
-            }
-            .background(.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 6))
+        case .codeBlock(let languageHint):
+            MarkdownCodeBlock(text: block.text, language: languageHint)
         case .thematicBreak:
-            Divider()
+            Divider().opacity(0.6)
         default:
-            Text(block.text).lineSpacing(3)
+            Text(block.text).lineSpacing(3.5)
         }
     }
 
@@ -148,5 +142,66 @@ private struct MarkdownTableRow: Layout {
         guard count > 0 else { return [] }
         if count == 2 { return [totalWidth * 0.33, totalWidth * 0.67] }
         return Array(repeating: totalWidth / CGFloat(count), count: count)
+    }
+}
+
+private struct MarkdownCodeBlock: View {
+    let text: AttributedString
+    let language: String?
+    @State private var copied = false
+
+    private var rawCode: String {
+        String(text.characters)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 6) {
+                Image(systemName: "chevron.left.forwardslash.chevron.right")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(.secondary)
+                Text((language?.isEmpty == false ? language! : "代码").uppercased())
+                    .font(.system(size: 10.5, weight: .semibold, design: .monospaced))
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Button {
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(rawCode, forType: .string)
+                    copied = true
+                    Task {
+                        try? await Task.sleep(for: .seconds(1.5))
+                        copied = false
+                    }
+                } label: {
+                    HStack(spacing: 3) {
+                        Image(systemName: copied ? "checkmark" : "doc.on.doc")
+                            .font(.system(size: 10, weight: .semibold))
+                        Text(copied ? "已复制" : "复制代码")
+                            .font(.system(size: 10.5, weight: .medium))
+                    }
+                    .foregroundStyle(copied ? .teal : .secondary)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .background(Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 4, style: .continuous))
+                }
+                .buttonStyle(.plain)
+                .help("复制代码段")
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 5)
+            .background(Color.secondary.opacity(0.11))
+
+            ScrollView(.horizontal) {
+                Text(text)
+                    .font(.system(size: 12, design: .monospaced))
+                    .fixedSize(horizontal: true, vertical: true)
+                    .padding(10)
+            }
+        }
+        .background(Color.secondary.opacity(0.065), in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 7, style: .continuous)
+                .strokeBorder(Color.secondary.opacity(0.16), lineWidth: 1)
+        )
     }
 }

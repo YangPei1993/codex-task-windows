@@ -13,28 +13,64 @@ struct SessionUserBubble: View {
 
     var body: some View {
         HStack(alignment: .top, spacing: 0) {
-            Spacer(minLength: 26)
+            Spacer(minLength: 28)
             VStack(alignment: .leading, spacing: 7) {
                 HStack(spacing: 7) {
-                    Text(title).fontWeight(.semibold).foregroundStyle(.primary)
-                    Text(date.formatted(.dateTime.hour().minute())).monospacedDigit()
-                    if let status { Text(status) }
+                    Image(systemName: "person.fill")
+                        .font(.system(size: 10))
+                        .foregroundStyle(.teal)
+                    Text(title)
+                        .fontWeight(.semibold)
+                        .foregroundStyle(.primary)
+                    Text(Session.friendlyTimestamp(date))
+                        .monospacedDigit()
+                    if let status {
+                        Text(status)
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundStyle(.teal)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 1.5)
+                            .background(.teal.opacity(0.16), in: Capsule())
+                    }
                 }
                 .font(.caption)
                 .foregroundStyle(.secondary)
+
                 Text(verbatim: text)
                     .font(.system(size: 13))
+                    .lineSpacing(3)
                     .lineLimit(longMessage && !expanded ? 6 : nil)
                     .fixedSize(horizontal: false, vertical: true)
                     .textSelection(.enabled)
+
                 if longMessage {
-                    Button(expanded ? "收起" : "展开全文") { expanded.toggle() }
-                        .font(.caption)
-                        .buttonStyle(.link)
+                    Button {
+                        expanded.toggle()
+                    } label: {
+                        HStack(spacing: 3) {
+                            Text(expanded ? "收起内容" : "展开全文")
+                            Image(systemName: expanded ? "chevron.up" : "chevron.down")
+                                .font(.system(size: 9, weight: .bold))
+                        }
+                        .font(.caption.weight(.medium))
+                        .foregroundStyle(.teal)
+                    }
+                    .buttonStyle(.plain)
                 }
             }
-            .padding(11)
-            .background(.teal.opacity(0.15), in: RoundedRectangle(cornerRadius: 10))
+            .padding(12)
+            .background(
+                LinearGradient(
+                    colors: [.teal.opacity(0.16), .teal.opacity(0.10)],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                ),
+                in: RoundedRectangle(cornerRadius: 12, style: .continuous)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .strokeBorder(.teal.opacity(0.24), lineWidth: 1)
+            )
         }
     }
 }

@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 struct SessionTranscript: View {
@@ -38,24 +39,64 @@ struct SessionTranscript: View {
                                      activities: activities)
     }
 
+    private func scopeTitle(_ item: Scope, compact: Bool) -> String {
+        if compact { return item.rawValue }
+        switch item {
+        case .latest: return item.rawValue
+        case .process: return process.isEmpty ? item.rawValue : "过程 (\(process.count))"
+        case .history: return items.isEmpty ? item.rawValue : "全部 (\(items.count))"
+        }
+    }
+
+    private func toolbar(compact: Bool) -> some View {
+        HStack(spacing: 8) {
+            Picker("消息范围", selection: $scope) {
+                ForEach(Scope.allCases, id: \.self) { item in
+                    Text(scopeTitle(item, compact: compact)).tag(item)
+                }
+            }
+            .labelsHidden()
+            .pickerStyle(.segmented)
+            .fixedSize()
+            Spacer(minLength: 0)
+            if scope != .latest {
+                Button {
+                    followsLatest.toggle()
+                } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: followsLatest ? "arrow.down.to.line.circle.fill" : "arrow.down.to.line.circle")
+                        if !compact {
+                            Text("跟随最新")
+                        }
+                    }
+                    .fixedSize()
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(followsLatest ? .teal : .secondary)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 3.5)
+                    .background(
+                        followsLatest ? Color.teal.opacity(0.12) : Color.secondary.opacity(0.08),
+                        in: Capsule()
+                    )
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("跟随最新")
+                .accessibilityValue(followsLatest ? "已开启" : "已暂停")
+                .help(followsLatest ? "正在自动滚动到最新内容（点击暂停）" : "点击恢复自动跟随最新内容")
+            }
+        }
+    }
+
     var body: some View {
         VStack(spacing: 0) {
-            HStack {
-                Picker("消息范围", selection: $scope) {
-                    ForEach(Scope.allCases, id: \.self) { Text($0.rawValue).tag($0) }
-                }
-                .labelsHidden()
-                .pickerStyle(.segmented)
-                .fixedSize()
-                Spacer()
-                if scope != .latest {
-                    Toggle("跟随最新", isOn: $followsLatest).toggleStyle(.checkbox)
-                }
+            ViewThatFits(in: .horizontal) {
+                toolbar(compact: false)
+                toolbar(compact: true)
             }
             .font(.caption)
             .padding(.horizontal, 15)
             .padding(.vertical, 8)
-            Divider()
+            Divider().opacity(0.6)
             ScrollViewReader { scroll in
                 if scope == .process,
                    let question = currentTurn.last(where: { $0.kind == .userMessage }) ?? contextualQuestion {
@@ -63,21 +104,29 @@ struct SessionTranscript: View {
                         followsLatest = false
                         scroll.scrollTo(ProcessEntry.message(question).id, anchor: .top)
                     } label: {
-                        HStack(spacing: 6) {
-                            Text(question.questionLabel).fontWeight(.semibold)
-                            Text(verbatim: question.text).lineLimit(1)
+                        HStack(spacing: 7) {
+                            Image(systemName: "quote.opening")
+                                .font(.system(size: 10, weight: .bold))
+                                .foregroundStyle(.teal)
+                            Text(question.questionLabel)
+                                .fontWeight(.semibold)
+                                .foregroundStyle(.primary)
+                            Text(verbatim: question.text)
+                                .lineLimit(1)
+                                .foregroundStyle(.secondary)
                             Spacer(minLength: 4)
-                            Image(systemName: "arrow.up")
+                            Image(systemName: "arrow.up.circle")
+                                .foregroundStyle(.teal)
                         }
                         .font(.caption)
-                        .foregroundStyle(.secondary)
                         .padding(.horizontal, 15)
                         .padding(.vertical, 7)
+                        .background(Color.teal.opacity(0.05))
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
-                    .help("定位到完整提问")
-                    Divider()
+                    .help("点击定位到本轮完整提问")
+                    Divider().opacity(0.6)
                 }
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 12) {
@@ -87,10 +136,18 @@ struct SessionTranscript: View {
                                 .id("latest-top")
                         case .process:
                             if process.isEmpty {
-                                Label(running ? "等待 Codex 写入过程记录" : "本轮暂无过程记录",
-                                      systemImage: "clock")
-                                    .font(.subheadline)
-                                    .foregroundStyle(.secondary)
+                                HStack(spacing: 8) {
+                                    if running {
+                                        ProgressView().controlSize(.small)
+                                    } else {
+                                        Image(systemName: "clock")
+                                    }
+                                    Text(running ? "正在等待 Codex 写入本轮过程记录…" : "本轮暂无过程记录")
+                                }
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                                .frame(maxWidth: .infinity, alignment: .center)
+                                .padding(.vertical, 28)
                             }
                             ForEach(process) { entry in
                                 SessionProcessRow(entry: entry).id(entry.id)
@@ -146,14 +203,26 @@ struct SessionTranscript: View {
             Button {
                 scope = .process
             } label: {
-                HStack(spacing: 7) {
-                    Label("查看本轮过程", systemImage: "list.bullet.rectangle")
+                HStack(spacing: 8) {
+                    Image(systemName: "sparkles.rectangle.stack")
+                        .foregroundStyle(.teal)
+                    Text("查看本轮思考与执行过程 (\(process.count))")
+                        .foregroundStyle(.primary)
                     Spacer()
-                    Image(systemName: "chevron.right").font(.caption2.weight(.semibold))
+                    Text("展开")
+                        .foregroundStyle(.teal)
+                    Image(systemName: "chevron.right")
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(.teal)
                 }
                 .font(.caption.weight(.medium))
-                .padding(8)
-                .background(.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 7))
+                .padding(.horizontal, 11)
+                .padding(.vertical, 8.5)
+                .background(Color.teal.opacity(0.08), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .strokeBorder(Color.teal.opacity(0.2), lineWidth: 1)
+                )
             }
             .buttonStyle(.plain)
         }
@@ -166,9 +235,18 @@ struct SessionTranscript: View {
             } else if let event = activities.last(where: { $0.text != nil }) {
                 SessionProcessRow(entry: .activity(event, count: 1))
             } else if outgoing.isEmpty || !currentTurn.isEmpty {
-                Label("等待 Codex 回复", systemImage: "ellipsis.bubble")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
+                HStack(spacing: 8) {
+                    if running {
+                        ProgressView().controlSize(.small)
+                        Text("Codex 正在思考与处理…")
+                    } else {
+                        Image(systemName: "bubble.left")
+                        Text("本轮暂无可显示的回复")
+                    }
+                }
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .padding(.vertical, 6)
             }
         }
         if result == nil, let previous = items.last(where: { $0.kind == .result }) {
@@ -188,20 +266,7 @@ struct SessionTranscript: View {
         if message.kind == .userMessage {
             SessionUserBubble(text: message.text, date: message.date, title: title ?? message.kind.label)
         } else {
-            VStack(alignment: .leading, spacing: 9) {
-                HStack(spacing: 8) {
-                    Text(title ?? message.kind.label)
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(message.kind == .result ? Color.teal : .secondary)
-                    Spacer()
-                    Text(message.date.formatted(.dateTime.month().day().hour().minute()))
-                        .font(.caption.monospacedDigit())
-                        .foregroundStyle(.secondary)
-                }
-                MessageMarkdown(source: message.text).equatable().font(.system(size: 13))
-            }
-            .padding(12)
-            .background(.secondary.opacity(message.kind == .result ? 0.07 : 0.04), in: RoundedRectangle(cornerRadius: 9))
+            MessageResponseCard(message: message, title: title ?? message.kind.label)
         }
     }
 
@@ -218,5 +283,66 @@ struct SessionTranscript: View {
         case .history:
             if followsLatest, let id = items.last?.id { scroll.scrollTo(id, anchor: .top) }
         }
+    }
+}
+
+private struct MessageResponseCard: View {
+    let message: SessionMessage
+    let title: String
+    @State private var copied = false
+
+    private var isResult: Bool { message.kind == .result }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 7) {
+                Image(systemName: isResult ? "sparkles" : "bolt.horizontal.circle")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(isResult ? Color.teal : .secondary)
+                Text(title)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(isResult ? Color.teal : .secondary)
+                Spacer()
+                Text(Session.friendlyTimestamp(message.date))
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
+                    .help(message.date.formatted(date: .abbreviated, time: .standard))
+
+                Button {
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(message.text, forType: .string)
+                    copied = true
+                    Task {
+                        try? await Task.sleep(for: .seconds(1.5))
+                        copied = false
+                    }
+                } label: {
+                    HStack(spacing: 3) {
+                        Image(systemName: copied ? "checkmark" : "doc.on.doc")
+                            .font(.system(size: 10, weight: .semibold))
+                        if copied {
+                            Text("已复制").font(.system(size: 10, weight: .medium))
+                        }
+                    }
+                    .foregroundStyle(copied ? .teal : .secondary)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 3)
+                    .background(Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 5, style: .continuous))
+                }
+                .buttonStyle(.plain)
+                .help("复制消息全文")
+                .accessibilityLabel("复制消息全文")
+            }
+            MessageMarkdown(source: message.text).equatable().font(.system(size: 13))
+        }
+        .padding(12)
+        .background(
+            isResult ? Color.teal.opacity(0.05) : Color.secondary.opacity(0.045),
+            in: RoundedRectangle(cornerRadius: 10, style: .continuous)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .strokeBorder(isResult ? Color.teal.opacity(0.18) : Color.secondary.opacity(0.12), lineWidth: 1)
+        )
     }
 }

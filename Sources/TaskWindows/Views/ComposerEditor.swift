@@ -74,8 +74,8 @@ struct ComposerEditor: NSViewRepresentable {
             attributes: [.font: Self.font]
         )
         let windowHeight = nsView.window?.contentLayoutRect.height ?? 530
-        let limit = max(60, min(126, (windowHeight - 115) * 0.27))
-        return CGSize(width: width, height: max(60, min(limit, ceil(measured.height) + 2 * Self.insets.height)))
+        let limit = max(44, min(132, (windowHeight - 115) * 0.28))
+        return CGSize(width: width, height: max(44, min(limit, ceil(measured.height) + 2 * Self.insets.height)))
     }
 
     static var isComposing: Bool {

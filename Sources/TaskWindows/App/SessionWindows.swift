@@ -17,9 +17,14 @@ final class SessionWindows: NSObject, NSWindowDelegate {
             reveal(overview)
             return
         }
-        let view = OverviewView(store: store, open: { [weak self] in self?.open($0) }, tile: { [weak self] in self?.tile() })
+        let view = OverviewView(
+            store: store, open: { [weak self] in self?.open($0) }, tile: { [weak self] in self?.tile() },
+            openInCodex: { [weak self] session in
+                self?.openInCodex(session, from: self?.overview)
+            }
+        )
         let window = makeWindow(title: "Codex 会话看板", view: view, size: .init(width: 860, height: 620),
-                                minimum: .init(width: 620, height: 420))
+                                minimum: .init(width: 640, height: 440))
         window.center()
         window.setFrameAutosaveName("SessionOverview")
         overview = window
@@ -38,7 +43,17 @@ final class SessionWindows: NSObject, NSWindowDelegate {
                 openInCodex: { [weak self] in self?.openInCodex(session) }
             )
             let window = makeWindow(title: session.title, view: view, size: .init(width: 520, height: 530),
-                                    minimum: .init(width: 310, height: 280))
+                                    minimum: .init(width: 320, height: 280))
+            // 内容顶部已有任务标题，标题栏留给窗口按钮和状态。
+            window.titleVisibility = .hidden
+            let status = SessionWindowStatus(store: store, original: session,
+                                             openInCodex: { [weak self] in self?.openInCodex(session) })
+            let accessory = NSTitlebarAccessoryViewController()
+            accessory.layoutAttribute = .trailing
+            let statusView = NSHostingView(rootView: status)
+            statusView.frame.size = statusView.fittingSize
+            accessory.view = statusView
+            window.addTitlebarAccessoryViewController(accessory)
             window.identifier = NSUserInterfaceItemIdentifier(session.id)
             if let previous = openOrder.last.flatMap({ windows[$0] }) {
                 window.cascadeTopLeft(from: .init(x: previous.frame.minX, y: previous.frame.maxY))
@@ -94,7 +109,7 @@ final class SessionWindows: NSObject, NSWindowDelegate {
         store.setPinned(id, enabled)
     }
 
-    private func openInCodex(_ session: Session) {
+    private func openInCodex(_ session: Session, from parent: NSWindow? = nil) {
         Task {
             do {
                 try await CodexLink.open(session.deepLink)
@@ -102,7 +117,7 @@ final class SessionWindows: NSObject, NSWindowDelegate {
                 let alert = NSAlert()
                 alert.messageText = "无法打开 Codex 会话"
                 alert.informativeText = error.localizedDescription
-                if let window = windows[session.id] {
+                if let window = parent ?? windows[session.id], window.isVisible {
                     alert.beginSheetModal(for: window, completionHandler: nil)
                 } else {
                     alert.runModal()

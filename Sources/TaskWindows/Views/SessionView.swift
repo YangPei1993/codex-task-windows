@@ -6,6 +6,7 @@ struct SessionView: View {
     @Bindable var draft: SessionDraft
     let pin: () -> Void
     let openInCodex: () -> Void
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var session: Session { store.sessions.first { $0.id == original.id } ?? original }
     private var items: [SessionMessage] { store.messages[original.id] ?? [] }
@@ -14,14 +15,24 @@ struct SessionView: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            if session.status != .unknown {
+                session.status.tint.frame(height: 3).accessibilityHidden(true)
+            }
             header
-            Divider()
+            Divider().opacity(0.6)
             if let error = store.error {
-                Label("同步失败 · \(error)", systemImage: "exclamationmark.circle")
-                    .font(.caption)
-                    .foregroundStyle(.orange)
-                    .lineLimit(2)
-                    .padding(8)
+                HStack(spacing: 6) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .foregroundStyle(.orange)
+                    Text("本地同步暂缓 · \(error)")
+                        .lineLimit(2)
+                    Spacer()
+                }
+                .font(.caption)
+                .foregroundStyle(.orange)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 7)
+                .background(.orange.opacity(0.08))
             }
             if items.isEmpty && activities.isEmpty && draft.outbox.messages.isEmpty {
                 emptyTranscript
@@ -30,58 +41,88 @@ struct SessionView: View {
                                   turnID: session.currentTurnID,
                                   running: session.status == .running)
             }
-            Divider()
+            Divider().opacity(0.6)
             composer
         }
-        .frame(minWidth: 310, minHeight: 280)
+        .frame(minWidth: 320, minHeight: 280)
         .tint(.teal)
     }
 
     private var header: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 9) {
             HStack(alignment: .center, spacing: 8) {
-                Text(verbatim: session.project)
+                Label(session.project, systemImage: "folder")
                     .font(.caption.weight(.medium))
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
+                    .padding(.horizontal, 7)
+                    .padding(.vertical, 2.5)
+                    .background(.secondary.opacity(0.1), in: Capsule())
+
                 Spacer(minLength: 4)
-                StatusBadge(status: session.status)
+
                 Button(action: pin) {
-                    Image(systemName: pinned ? "pin.fill" : "pin")
-                        .foregroundStyle(pinned ? .teal : .secondary)
-                        .frame(width: 22, height: 22)
+                    HStack(spacing: 4) {
+                        Image(systemName: pinned ? "pin.fill" : "pin")
+                            .font(.system(size: 11, weight: .semibold))
+                        if pinned {
+                            Text("已置顶").font(.caption2.weight(.semibold))
+                        }
+                    }
+                    .foregroundStyle(pinned ? .teal : .secondary)
+                    .padding(.horizontal, pinned ? 8 : 6)
+                    .padding(.vertical, 4)
+                    .background(pinned ? Color.teal.opacity(0.14) : Color.secondary.opacity(0.08), in: Capsule())
                 }
-                .buttonStyle(.borderless)
-                .help(pinned ? "取消置顶" : "置顶窗口")
+                .buttonStyle(.plain)
+                .help(pinned ? "取消窗口置顶" : "将窗口置顶在最前方")
                 .accessibilityLabel(pinned ? "取消置顶" : "置顶窗口")
+
                 Button(action: openInCodex) {
                     Label("回 Codex", systemImage: "arrow.up.right")
                         .font(.caption.weight(.medium))
                 }
                 .controlSize(.small)
-                .help("打开原会话，可继续发消息和处理审批")
+                .help("在原 Codex 桌面端打开此会话，可处理审批或终止任务")
             }
+
             Text(verbatim: session.title)
-                .font(.system(size: 18, weight: .semibold))
+                .font(.system(size: 16.5, weight: .semibold))
                 .lineLimit(2)
                 .help(session.title)
+
             if let activity = session.activity, let action = session.lastAction {
-                Label("\(action) · \(activity.formatted(.dateTime.hour().minute().second()))", systemImage: "waveform.path")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
+                HStack(spacing: 5) {
+                    Image(systemName: "waveform.path")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(session.status == .running ? session.status.tint : .secondary)
+                    Text("\(action) · \(Session.friendlyTimestamp(activity))")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
             }
         }
         .padding(.horizontal, 15)
         .padding(.vertical, 11)
+        .background {
+            if session.status != .unknown {
+                LinearGradient(
+                    colors: [session.status.tint.opacity(0.14), session.status.tint.opacity(0.02)],
+                    startPoint: .top, endPoint: .bottom
+                )
+            }
+        }
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.24), value: session.status)
     }
 
     private var emptyTranscript: some View {
         Group {
             if store.messages[original.id] == nil, store.error == nil {
-                ProgressView("正在读取消息")
+                ProgressView("正在读取会话消息…")
             } else {
-                Text("暂无消息").font(.subheadline).foregroundStyle(.secondary)
+                ContentUnavailableView("暂无对话消息", systemImage: "bubble.left.and.bubble.right",
+                                       description: Text("当 Codex 产生回复或活动后将自动显示在这里。"))
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -94,12 +135,20 @@ struct SessionView: View {
                 draft.send(to: session, previous: items, refresh: store.requestRefresh)
             }
         } else {
-            Text("此会话可在原 Codex 窗口中回复。")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 15)
-                .padding(.vertical, 9)
+            HStack(spacing: 8) {
+                Image(systemName: "info.circle")
+                    .foregroundStyle(.secondary)
+                Text("此会话为只读监看，如需回复请前往原窗口。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Button("去回复", action: openInCodex)
+                    .controlSize(.small)
+                    .buttonStyle(.link)
+            }
+            .padding(.horizontal, 15)
+            .padding(.vertical, 10)
+            .background(.secondary.opacity(0.04))
         }
     }
 

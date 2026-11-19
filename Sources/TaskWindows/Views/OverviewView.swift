@@ -10,6 +10,7 @@ struct OverviewView: View {
     let store: SessionStore
     let open: ([Session]) -> Void
     let tile: () -> Void
+    let openInCodex: (Session) -> Void
     @State private var search = ""
     @State private var project = ""
     @State private var scope: Scope = .all
@@ -37,68 +38,165 @@ struct OverviewView: View {
 
     private var selected: [Session] { visible.filter { selection.contains($0.id) } }
     private var running: [Session] { filtered.filter { $0.status == .running } }
+    private var openSessions: [Session] { filtered.filter { store.watching.contains($0.id) } }
+    @FocusState private var isSearchFocused: Bool
+
+    private func scopeTitle(_ item: Scope) -> String {
+        switch item {
+        case .all: "全部 (\(filtered.count))"
+        case .running: "进行中 (\(running.count))"
+        case .open: "已开窗 (\(openSessions.count))"
+        }
+    }
 
     var body: some View {
         VStack(spacing: 0) {
             header
             filters
-            Divider()
+            Divider().opacity(0.6)
             if visible.isEmpty {
                 emptyState.frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 sessionList
             }
-            Divider()
+            Divider().opacity(0.6)
             footer
         }
-        .frame(minWidth: 620, minHeight: 420)
+        .frame(minWidth: 640, minHeight: 440)
         .tint(.teal)
+        .background {
+            // 隐藏快捷键触发⌘F快速聚焦搜索框
+            Button("") { isSearchFocused = true }
+                .keyboardShortcut("f", modifiers: [.command])
+                .opacity(0)
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
+        }
     }
 
     private var header: some View {
         HStack(alignment: .center, spacing: 14) {
-            Image(systemName: "square.on.square")
-                .font(.system(size: 19, weight: .medium))
-                .foregroundStyle(.teal)
-                .frame(width: 42, height: 42)
-                .background(.teal.opacity(0.12), in: RoundedRectangle(cornerRadius: 12))
-                .accessibilityHidden(true)
-            VStack(alignment: .leading, spacing: 5) {
-                Text("会话看板").font(.title2.weight(.semibold))
-                Text("\(filtered.count) 条会话 · \(running.count) 条进行中 · \(store.watching.count) 个窗口")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
+            ZStack {
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .fill(
+                        LinearGradient(
+                            colors: [.teal.opacity(0.22), .teal.opacity(0.08)],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                            .strokeBorder(.teal.opacity(0.25), lineWidth: 1)
+                    )
+                Image(systemName: "square.on.square")
+                    .font(.system(size: 19, weight: .semibold))
+                    .foregroundStyle(.teal)
+            }
+            .frame(width: 44, height: 44)
+            .accessibilityHidden(true)
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text("会话看板")
+                    .font(.system(size: 20, weight: .bold))
+                HStack(spacing: 8) {
+                    statPill(title: "总会话", count: filtered.count, tint: .secondary)
+                    statPill(title: "进行中", count: running.count, tint: .blue, active: running.count > 0)
+                    statPill(title: "已开窗", count: store.watching.count, tint: .teal, active: !store.watching.isEmpty)
+                }
             }
             Spacer()
-            Button(action: tile) { Label("平铺窗口", systemImage: "square.grid.2x2") }
-                .disabled(store.watching.isEmpty)
-                .help("平铺已打开的任务窗口（⌘2）")
+            Button(action: tile) {
+                Label("平铺窗口", systemImage: "square.grid.2x2")
+            }
+            .controlSize(.regular)
+            .disabled(store.watching.isEmpty)
+            .help("平铺已打开的任务窗口（⌘2）")
+
             Button {
                 open(selected.isEmpty ? running : selected)
             } label: {
-                Label(selected.isEmpty ? "打开进行中" : "打开所选（\(selected.count)）", systemImage: "macwindow.badge.plus")
+                Label(
+                    selected.isEmpty ? "打开进行中 (\(running.count))" : "打开所选 (\(selected.count))",
+                    systemImage: "macwindow.badge.plus"
+                )
             }
             .buttonStyle(.borderedProminent)
+            .controlSize(.regular)
             .disabled(selected.isEmpty && running.isEmpty)
             .keyboardShortcut(.return, modifiers: [.command])
+            .help("打开选中的会话，未选择时批量打开进行中会话（⌘↩）")
         }
         .padding(.horizontal, 22)
-        .padding(.vertical, 18)
+        .padding(.top, 18)
+        .padding(.bottom, 14)
+    }
+
+    private func statPill(title: String, count: Int, tint: Color, active: Bool = false) -> some View {
+        HStack(spacing: 4) {
+            if active {
+                Circle()
+                    .fill(tint)
+                    .frame(width: 6, height: 6)
+            }
+            Text("\(title) \(count)")
+                .font(.caption.weight(.medium))
+                .monospacedDigit()
+        }
+        .foregroundStyle(active ? tint : .secondary)
+        .padding(.horizontal, 8)
+        .padding(.vertical, 3)
+        .background(
+            (active ? tint.opacity(0.12) : Color.secondary.opacity(0.08)),
+            in: Capsule()
+        )
     }
 
     private var filters: some View {
         HStack(spacing: 10) {
-            TextField("搜索标题、工单或项目", text: $search)
-                .textFieldStyle(.roundedBorder)
-                .accessibilityLabel("搜索会话")
+            // C 端自定义胶囊/圆角搜索框，带放大镜图标和一键清除按钮
+            HStack(spacing: 7) {
+                Image(systemName: "magnifyingglass")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(isSearchFocused ? .teal : .secondary)
+                TextField("搜索标题、项目或任务关键字 (⌘F)", text: $search)
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 13))
+                    .focused($isSearchFocused)
+                    .accessibilityLabel("搜索会话")
+                if !search.isEmpty {
+                    Button {
+                        search = ""
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.system(size: 13))
+                            .foregroundStyle(.secondary)
+                    }
+                    .buttonStyle(.plain)
+                    .help("清空搜索")
+                    .accessibilityLabel("清空搜索")
+                }
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .strokeBorder(isSearchFocused ? Color.teal.opacity(0.6) : Color.secondary.opacity(0.22), lineWidth: 1)
+            )
+
             Picker("项目", selection: $project) {
                 Text("所有项目").tag("")
                 ForEach(projects, id: \.self) { Text($0).tag($0) }
             }
             .labelsHidden()
-            .frame(maxWidth: 162)
+            .frame(maxWidth: 168)
+            .help("按项目筛选会话")
+
             Picker("会话状态", selection: $scope) {
-                ForEach(Scope.allCases, id: \.self) { Text($0.rawValue).tag($0) }
+                ForEach(Scope.allCases, id: \.self) { item in
+                    Text(scopeTitle(item)).tag(item)
+                }
             }
             .pickerStyle(.segmented)
             .labelsHidden()
@@ -111,13 +209,25 @@ struct OverviewView: View {
     private var emptyState: some View {
         Group {
             if store.lastRefresh == nil, store.error == nil {
-                ProgressView("正在读取本地 Codex 会话")
+                ProgressView("正在读取本地 Codex 会话…")
             } else if let error = store.error, store.sessions.isEmpty {
                 ContentUnavailableView("暂时无法读取会话", systemImage: "externaldrive.badge.exclamationmark",
                                        description: Text(error))
             } else {
-                ContentUnavailableView("没有符合条件的会话", systemImage: "magnifyingglass",
-                                       description: Text("试试切换项目或清空搜索。"))
+                ContentUnavailableView {
+                    Label("没有符合条件的会话", systemImage: "magnifyingglass")
+                } description: {
+                    Text("可以尝试切换筛选范围，或清空当前搜索条件。")
+                } actions: {
+                    if !search.isEmpty || !project.isEmpty || scope != .all {
+                        Button("重置筛选条件") {
+                            search = ""
+                            project = ""
+                            scope = .all
+                        }
+                        .buttonStyle(.borderedProminent)
+                    }
+                }
             }
         }
     }
@@ -125,91 +235,151 @@ struct OverviewView: View {
     private var sessionList: some View {
         List(selection: $selection) {
             ForEach(visible) { session in
+                let isWatching = store.watching.contains(session.id)
+                let isPinned = store.pinned.contains(session.id)
                 HStack(spacing: 12) {
-                    Image(systemName: store.watching.contains(session.id) ? "macwindow" : "text.bubble")
-                        .font(.system(size: 15))
-                        .foregroundStyle(store.watching.contains(session.id) ? .teal : .secondary)
-                        .frame(width: 22)
-                        .accessibilityHidden(true)
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(verbatim: session.title)
-                            .font(.system(size: 13, weight: .medium))
-                            .lineLimit(1)
-                            .help(session.title)
-                        Text(verbatim: session.project)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
+                    // 左侧图标容器：提升视觉层级与已开窗辨识度
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .fill(isWatching ? Color.teal.opacity(0.14) : Color.secondary.opacity(0.08))
+                        Image(systemName: isWatching ? "macwindow.on.rectangle" : "bubble.left.and.text.bubble.right")
+                            .font(.system(size: 13, weight: isWatching ? .semibold : .regular))
+                            .foregroundStyle(isWatching ? .teal : .secondary)
                     }
+                    .frame(width: 30, height: 30)
+                    .accessibilityHidden(true)
+
+                    VStack(alignment: .leading, spacing: 5) {
+                        HStack(spacing: 6) {
+                            Text(verbatim: session.title)
+                                .font(.system(size: 13.5, weight: isWatching ? .semibold : .medium))
+                                .lineLimit(1)
+                                .help(session.title)
+                            if isPinned {
+                                Image(systemName: "pin.fill")
+                                    .font(.system(size: 10))
+                                    .foregroundStyle(.teal)
+                                    .help("窗口已置顶")
+                            }
+                        }
+                        HStack(spacing: 6) {
+                            Label(session.project, systemImage: "folder")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 1.5)
+                                .background(Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 4, style: .continuous))
+                            if let lastAction = session.lastAction {
+                                Text("·")
+                                    .font(.caption)
+                                    .foregroundStyle(.tertiary)
+                                Text(lastAction)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(1)
+                            }
+                        }
+                    }
+
                     Spacer(minLength: 8)
-                    StatusBadge(status: session.status)
-                    Text(session.sortDate.formatted(.dateTime.month().day().hour().minute()))
+
+                    if isWatching {
+                        Text("已开窗")
+                            .font(.system(size: 10.5, weight: .semibold))
+                            .foregroundStyle(.teal)
+                            .padding(.horizontal, 7)
+                            .padding(.vertical, 2.5)
+                            .background(.teal.opacity(0.12), in: Capsule())
+                    }
+
+                    StatusBadge(status: session.status, animates: true)
+
+                    Text(Session.friendlyTimestamp(session.sortDate))
                         .font(.caption.monospacedDigit())
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
-                        .frame(width: 114, alignment: .trailing)
+                        .frame(width: 96, alignment: .trailing)
+                        .help(session.sortDate.formatted(date: .abbreviated, time: .standard))
+
                     Button {
                         open([session])
                     } label: {
-                        Image(systemName: "arrow.up.right.square")
-                            .font(.system(size: 15))
-                            .frame(width: 26, height: 26)
+                        Image(systemName: isWatching ? "macwindow" : "arrow.up.right.square")
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundStyle(isWatching ? .teal : .secondary)
+                            .frame(width: 28, height: 28)
+                            .background(Color.secondary.opacity(0.07), in: RoundedRectangle(cornerRadius: 6, style: .continuous))
                     }
                     .buttonStyle(.borderless)
-                    .help("打开独立窗口")
-                    .accessibilityLabel("打开独立窗口")
+                    .help(isWatching ? "前置已打开的窗口" : "打开独立监控窗口")
+                    .accessibilityLabel(isWatching ? "前置已打开的窗口" : "打开独立监控窗口")
                 }
-                .padding(.vertical, 4)
+                .padding(.vertical, 5)
                 .contentShape(Rectangle())
                 .tag(session.id)
             }
         }
-        .listStyle(.inset)
+        .listStyle(.inset(alternatesRowBackgrounds: false))
         .contextMenu(forSelectionType: String.self) { ids in
-            Button(ids.count == 1 ? "打开独立窗口" : "打开所选") {
-                open(visible.filter { ids.contains($0.id) })
+            let targets = visible.filter { ids.contains($0.id) }
+            Button(ids.count <= 1 ? "打开独立窗口" : "打开所选（\(ids.count)）") {
+                open(targets)
             }
-            .disabled(ids.isEmpty)
+            .disabled(targets.isEmpty)
+            if targets.count == 1, let item = targets.first {
+                Button("在原 Codex 中打开") {
+                    openInCodex(item)
+                }
+                Divider()
+                Button("复制会话标题") {
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(item.title, forType: .string)
+                }
+            }
         } primaryAction: { ids in
             open(visible.filter { ids.contains($0.id) })
         }
     }
 
     private var footer: some View {
-        HStack(spacing: 7) {
+        HStack(spacing: 8) {
             if let error = store.error {
-                Label(error, systemImage: "exclamationmark.circle").lineLimit(1).foregroundStyle(.orange)
+                Label(error, systemImage: "exclamationmark.triangle.fill")
+                    .lineLimit(1)
+                    .foregroundStyle(.orange)
             } else if let refreshed = store.lastRefresh {
-                Label("本地同步 \(refreshed.formatted(.dateTime.hour().minute().second()))", systemImage: "arrow.clockwise")
-                    .accessibilityLabel("上次本地同步 \(refreshed.formatted(date: .omitted, time: .standard))")
+                HStack(spacing: 5) {
+                    Circle()
+                        .fill(Color.green)
+                        .frame(width: 6, height: 6)
+                    Text("实时同步 · \(refreshed.formatted(.dateTime.hour().minute().second()))")
+                        .monospacedDigit()
+                }
+                .accessibilityLabel("上次本地同步 \(refreshed.formatted(date: .omitted, time: .standard))")
             } else {
-                Text("连接本地记录…")
+                Text("正在连接本地记录…")
             }
             Spacer(minLength: 8)
-            Text("双击开窗 · ⌘ 点击多选")
-            Button(action: store.requestRefresh) { Image(systemName: "arrow.clockwise") }
-                .buttonStyle(.borderless)
-                .help("刷新（⌘R）")
-                .accessibilityLabel("刷新")
+            if !selected.isEmpty {
+                Text("已选 \(selected.count) 项")
+                    .fontWeight(.medium)
+                    .foregroundStyle(.teal)
+                Text("·")
+            }
+            Text("双击或 ⌘↩ 开窗 · ⌘F 搜索")
+            Button(action: store.requestRefresh) {
+                Label("刷新", systemImage: "arrow.clockwise")
+                    .labelStyle(.iconOnly)
+            }
+            .buttonStyle(.borderless)
+            .help("立即刷新本地记录（⌘R）")
+            .accessibilityLabel("刷新")
         }
         .font(.caption)
         .foregroundStyle(.secondary)
         .padding(.horizontal, 22)
         .padding(.vertical, 10)
-    }
-}
-
-struct StatusBadge: View {
-    let status: SessionStatus
-
-    var body: some View {
-        HStack(spacing: 5) {
-            Circle().fill(status.tint).frame(width: 5, height: 5).accessibilityHidden(true)
-            Text(status.label).font(.caption.weight(.medium)).foregroundStyle(.primary)
-        }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 4)
-        .background(status.tint.opacity(0.15), in: Capsule())
-        .help(status == .uncertain ? "最近 5 分钟没有新的本地活动，实际状态请回 Codex 查看。" : "最近一轮会话状态")
+        .background(.ultraThinMaterial)
     }
 }

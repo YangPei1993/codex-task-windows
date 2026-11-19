@@ -53,20 +53,38 @@ struct SessionProcessRow: View {
             if let text = event.text {
                 textRow(event.kind.label, icon: event.kind.icon, date: event.date, text: text)
             } else {
-                HStack(spacing: 6) {
-                    Label(count == 1 ? event.kind.label : "\(event.kind.label) ×\(count)",
-                          systemImage: event.kind.icon)
+                HStack(spacing: 8) {
+                    Image(systemName: event.kind.icon)
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(.teal)
+                        .frame(width: 20, height: 20)
+                        .background(Color.teal.opacity(0.12), in: Circle())
+
+                    Text(count == 1 ? event.kind.label : "\(event.kind.label) ×\(count)")
+                        .fontWeight(.medium)
+                        .foregroundStyle(.primary.opacity(0.85))
+
                     if let state = event.state {
+                        let isWarning = (state == .failed || state == .declined)
+                        let isDone = (state == .completed)
                         Text(state.label)
-                            .foregroundStyle(state == .failed || state == .declined ? Color.orange : .secondary)
+                            .font(.system(size: 10.5, weight: .semibold))
+                            .foregroundStyle(isWarning ? Color.orange : (isDone ? Color.teal : .secondary))
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 1.5)
+                            .background(
+                                (isWarning ? Color.orange : (isDone ? Color.teal : Color.secondary)).opacity(0.12),
+                                in: Capsule()
+                            )
                     }
                     Spacer(minLength: 4)
                     time(event.date)
                 }
                 .font(.caption)
                 .foregroundStyle(.secondary)
-                .padding(.horizontal, 9)
-                .padding(.vertical, 5)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+                .background(Color.secondary.opacity(0.045), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
             }
         }
     }
@@ -74,15 +92,20 @@ struct SessionProcessRow: View {
     private func textRow(_ title: String, icon: String, date: Date, text: String) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
-                Label(title, systemImage: icon).foregroundStyle(.teal)
+                Label(title, systemImage: icon)
+                    .foregroundStyle(.teal)
+                    .font(.caption.weight(.semibold))
                 Spacer()
                 time(date)
             }
-            .font(.caption.weight(.medium))
             MessageMarkdown(source: text).equatable().font(.system(size: 13))
         }
-        .padding(10)
-        .background(.secondary.opacity(0.07), in: RoundedRectangle(cornerRadius: 8))
+        .padding(11)
+        .background(.secondary.opacity(0.055), in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 9, style: .continuous)
+                .strokeBorder(.secondary.opacity(0.12), lineWidth: 1)
+        )
     }
 
     private func time(_ date: Date) -> some View {
