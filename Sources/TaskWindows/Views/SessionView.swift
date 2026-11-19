@@ -12,11 +12,9 @@ struct SessionView: View {
     private var pinned: Bool { store.pinned.contains(original.id) }
     var body: some View {
         VStack(spacing: 0) {
-            session.status.tint
-                .opacity(session.status == .unknown ? 0 : 0.9)
-                .frame(height: 3.5)
-                .accessibilityHidden(true)
             header
+                .padding(.top, SessionHeaderDecoration.bandHeight)
+                .background { SessionHeaderDecoration(status: session.status) }
             Divider().opacity(0.6)
             if let error = store.error {
                 HStack(spacing: 6) {
@@ -106,14 +104,6 @@ struct SessionView: View {
         }
         .padding(.horizontal, 15)
         .padding(.vertical, 11)
-        .background {
-            if session.status != .unknown {
-                LinearGradient(
-                    colors: [session.status.tint.opacity(0.16), session.status.tint.opacity(0.03)],
-                    startPoint: .top, endPoint: .bottom
-                )
-            }
-        }
     }
 
     private var emptyTranscript: some View {
