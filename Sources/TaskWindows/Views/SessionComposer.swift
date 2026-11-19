@@ -28,14 +28,18 @@ struct SessionComposer: View {
                 }
                 Button(action: send) {
                     HStack(spacing: 4) {
-                        if draft.sending {
-                            ProgressView().controlSize(.mini)
-                        } else {
-                            Image(systemName: "arrow.up.circle.fill")
-                                .font(.system(size: 13))
+                        Group {
+                            if draft.sending {
+                                ProgressView().controlSize(.mini)
+                            } else {
+                                Image(systemName: "arrow.up.circle.fill")
+                                    .font(.system(size: 13))
+                            }
                         }
+                        .frame(width: 14, height: 14)
                         Text(draft.sending ? "发送中" : "发送")
                             .font(.caption.weight(.semibold))
+                            .frame(minWidth: 36)
                     }
                 }
                 .buttonStyle(.borderedProminent)

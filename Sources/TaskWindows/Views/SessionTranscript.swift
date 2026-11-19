@@ -57,36 +57,38 @@ struct SessionTranscript: View {
             }
             .labelsHidden()
             .pickerStyle(.segmented)
-            .fixedSize()
+            .frame(width: compact ? 212 : 265)
             Spacer(minLength: 0)
-            if scope != .latest {
-                Button {
-                    followsLatest.toggle()
-                } label: {
-                    HStack(spacing: 4) {
-                        Image(systemName: followsLatest ? "arrow.down.to.line.circle.fill" : "arrow.down.to.line.circle")
-                        if !compact {
-                            Text("跟随最新")
-                        }
+            Button {
+                followsLatest.toggle()
+            } label: {
+                HStack(spacing: 4) {
+                    Image(systemName: followsLatest ? "arrow.down.to.line.circle.fill" : "arrow.down.to.line.circle")
+                    if !compact {
+                        Text("跟随最新")
                     }
-                    .fixedSize()
-                    .font(.caption.weight(.medium))
-                    .foregroundStyle(followsLatest ? .teal : .secondary)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 3.5)
-                    .background(
-                        followsLatest ? Color.teal.opacity(0.12) : Color.secondary.opacity(0.08),
-                        in: Capsule()
-                    )
-                    .overlay(
-                        Capsule().strokeBorder(followsLatest ? Color.teal.opacity(0.25) : .clear, lineWidth: 1)
-                    )
                 }
-                .buttonStyle(.plain)
-                .accessibilityLabel("跟随最新")
-                .accessibilityValue(followsLatest ? "已开启" : "已暂停")
-                .help(followsLatest ? "正在自动滚动到最新内容（点击暂停）" : "点击恢复自动跟随最新内容")
+                .fixedSize()
+                .font(.caption.weight(.medium))
+                .foregroundStyle(followsLatest ? .teal : .secondary)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 3.5)
+                .background(
+                    followsLatest ? Color.teal.opacity(0.12) : Color.secondary.opacity(0.08),
+                    in: Capsule()
+                )
+                .overlay(
+                    Capsule().strokeBorder(followsLatest ? Color.teal.opacity(0.25) : .clear, lineWidth: 1)
+                )
             }
+            .buttonStyle(.plain)
+            .opacity(scope == .latest ? 0 : 1)
+            .allowsHitTesting(scope != .latest)
+            .disabled(scope == .latest)
+            .accessibilityHidden(scope == .latest)
+            .accessibilityLabel("跟随最新")
+            .accessibilityValue(followsLatest ? "已开启" : "已暂停")
+            .help(followsLatest ? "正在自动滚动到最新内容（点击暂停）" : "点击恢复自动跟随最新内容")
         }
     }
 
@@ -159,7 +161,7 @@ struct SessionTranscript: View {
                             }
                         case .history:
                             ForEach(items) { message in
-                                card(message, collapsible: message.id != items.last?.id)
+                                card(message, collapsible: true, initiallyExpanded: message.id == items.last?.id)
                                     .id(message.id)
                             }
                         }
@@ -268,11 +270,13 @@ struct SessionTranscript: View {
     }
 
     @ViewBuilder
-    private func card(_ message: SessionMessage, title: String? = nil, collapsible: Bool = false) -> some View {
+    private func card(_ message: SessionMessage, title: String? = nil,
+                      collapsible: Bool = false, initiallyExpanded: Bool = true) -> some View {
         if message.kind == .userMessage {
             SessionUserBubble(text: message.text, date: message.date, title: title ?? message.kind.label)
         } else {
-            MessageResponseCard(message: message, title: title ?? message.kind.label, collapsible: collapsible)
+            MessageResponseCard(message: message, title: title ?? message.kind.label,
+                                collapsible: collapsible, initiallyExpanded: initiallyExpanded)
         }
     }
 
@@ -295,10 +299,16 @@ struct SessionTranscript: View {
 private struct MessageResponseCard: View {
     let message: SessionMessage
     let title: String
-    var collapsible = false
+    let collapsible: Bool
     @State private var copied = false
-    @State private var hovering = false
-    @State private var expanded = false
+    @State private var expanded: Bool
+
+    init(message: SessionMessage, title: String, collapsible: Bool, initiallyExpanded: Bool) {
+        self.message = message
+        self.title = title
+        self.collapsible = collapsible
+        _expanded = State(initialValue: initiallyExpanded)
+    }
 
     private var isResult: Bool { message.kind == .result }
 
@@ -351,21 +361,17 @@ private struct MessageResponseCard: View {
                         copied = false
                     }
                 } label: {
-                    HStack(spacing: 3) {
-                        Image(systemName: copied ? "checkmark" : "doc.on.doc")
-                            .font(.system(size: 10, weight: .semibold))
-                        if copied {
-                            Text("已复制").font(.system(size: 10, weight: .medium))
-                        }
-                    }
-                    .foregroundStyle(copied ? .teal : .secondary)
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 3)
-                    .background(Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 5, style: .continuous))
+                    Image(systemName: copied ? "checkmark" : "doc.on.doc")
+                        .font(.system(size: 10, weight: .semibold))
+                        .frame(width: 12, height: 12)
+                        .foregroundStyle(copied ? .teal : .secondary)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 3)
+                        .background(Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 5, style: .continuous))
                 }
                 .buttonStyle(.plain)
-                .help("复制消息全文")
-                .accessibilityLabel("复制消息全文")
+                .help(copied ? "已复制" : "复制消息全文")
+                .accessibilityLabel(copied ? "已复制" : "复制消息全文")
             }
 
             if isLong && !expanded {

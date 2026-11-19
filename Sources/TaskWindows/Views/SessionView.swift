@@ -6,27 +6,16 @@ struct SessionView: View {
     @Bindable var draft: SessionDraft
     let pin: () -> Void
     let openInCodex: () -> Void
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
     private var session: Session { store.sessions.first { $0.id == original.id } ?? original }
     private var items: [SessionMessage] { store.messages[original.id] ?? [] }
     private var activities: [TurnActivity] { store.activities[original.id] ?? [] }
     private var pinned: Bool { store.pinned.contains(original.id) }
-    @State private var breathing = false
-
-    private var isBreathing: Bool {
-        !reduceMotion && session.status == .running
-    }
-
     var body: some View {
         VStack(spacing: 0) {
-            if session.status != .unknown {
-                session.status.tint
-                    .opacity(isBreathing ? (breathing ? 1.0 : 0.4) : 0.9)
-                    .frame(height: 3.5)
-                    .shadow(color: isBreathing ? session.status.tint.opacity(breathing ? 0.65 : 0.1) : .clear, radius: 5, y: 1)
-                    .accessibilityHidden(true)
-            }
+            session.status.tint
+                .opacity(session.status == .unknown ? 0 : 0.9)
+                .frame(height: 3.5)
+                .accessibilityHidden(true)
             header
             Divider().opacity(0.6)
             if let error = store.error {
@@ -55,20 +44,6 @@ struct SessionView: View {
         }
         .frame(minWidth: 320, minHeight: 280)
         .tint(.teal)
-        .onAppear { updateBreathing() }
-        .onChange(of: isBreathing) { updateBreathing() }
-    }
-
-    private func updateBreathing() {
-        if isBreathing {
-            withAnimation(.easeInOut(duration: 1.6).repeatForever(autoreverses: true)) {
-                breathing = true
-            }
-        } else {
-            withAnimation(.easeOut(duration: 0.24)) {
-                breathing = false
-            }
-        }
     }
 
     private var header: some View {
@@ -122,7 +97,6 @@ struct SessionView: View {
                     Image(systemName: "waveform.path")
                         .font(.system(size: 10, weight: .semibold))
                         .foregroundStyle(session.status == .running ? session.status.tint : .secondary)
-                        .symbolEffect(.pulse, options: .repeating, isActive: isBreathing)
                     Text("\(action) · \(Session.friendlyTimestamp(activity))")
                         .font(.caption)
                         .foregroundStyle(.secondary)
@@ -135,15 +109,11 @@ struct SessionView: View {
         .background {
             if session.status != .unknown {
                 LinearGradient(
-                    colors: [
-                        session.status.tint.opacity(isBreathing ? (breathing ? 0.25 : 0.09) : 0.16),
-                        session.status.tint.opacity(isBreathing ? (breathing ? 0.06 : 0.015) : 0.03)
-                    ],
+                    colors: [session.status.tint.opacity(0.16), session.status.tint.opacity(0.03)],
                     startPoint: .top, endPoint: .bottom
                 )
             }
         }
-        .animation(reduceMotion ? nil : .easeInOut(duration: 0.24), value: session.status)
     }
 
     private var emptyTranscript: some View {

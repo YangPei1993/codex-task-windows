@@ -4,28 +4,15 @@ struct StatusBadge: View {
     let status: SessionStatus
     var animates = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var breathing = false
-
-    private var isBreathing: Bool {
-        animates && !reduceMotion && status == .running
-    }
 
     var body: some View {
         HStack(spacing: 5) {
-            ZStack {
-                if isBreathing {
-                    Circle()
-                        .fill(status.tint.opacity(0.32))
-                        .frame(width: 15, height: 15)
-                        .scaleEffect(breathing ? 1.45 : 0.7)
-                        .opacity(breathing ? 0 : 0.9)
-                }
-                Image(systemName: status.symbol)
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(status.tint)
-                    .symbolEffect(.pulse, options: .repeating, isActive: isBreathing)
-            }
-            .accessibilityHidden(true)
+            Image(systemName: status.symbol)
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(status.tint)
+                .symbolEffect(.pulse, options: .repeating, isActive: animates && !reduceMotion && status == .running)
+                .frame(width: 15, height: 15)
+                .accessibilityHidden(true)
 
             Text(status.label)
                 .font(.caption.weight(.semibold))
@@ -34,35 +21,9 @@ struct StatusBadge: View {
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 4)
-        .background(
-            status.tint.opacity(isBreathing ? (breathing ? 0.28 : 0.12) : 0.15),
-            in: Capsule()
-        )
-        .overlay(
-            Capsule().strokeBorder(
-                status.tint.opacity(isBreathing ? (breathing ? 0.65 : 0.22) : 0.28),
-                lineWidth: isBreathing ? 1.2 : 1
-            )
-        )
-        .shadow(
-            color: isBreathing ? status.tint.opacity(breathing ? 0.38 : 0.0) : .clear,
-            radius: breathing ? 6 : 1
-        )
+        .background(status.tint.opacity(0.15), in: Capsule())
+        .overlay(Capsule().strokeBorder(status.tint.opacity(0.28)))
         .help(status.explanation)
-        .onAppear { updateBreathing() }
-        .onChange(of: isBreathing) { updateBreathing() }
-    }
-
-    private func updateBreathing() {
-        if isBreathing {
-            withAnimation(.easeInOut(duration: 1.5).repeatForever(autoreverses: true)) {
-                breathing = true
-            }
-        } else {
-            withAnimation(.easeOut(duration: 0.2)) {
-                breathing = false
-            }
-        }
     }
 }
 

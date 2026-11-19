@@ -40,9 +40,15 @@ enum ProcessEntry: Identifiable {
 
 struct SessionProcessRow: View {
     let entry: ProcessEntry
-    var isLatest = true
+    let isLatest: Bool
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var expanded = false
+    @State private var expanded: Bool
+
+    init(entry: ProcessEntry, isLatest: Bool = true) {
+        self.entry = entry
+        self.isLatest = isLatest
+        _expanded = State(initialValue: isLatest)
+    }
 
     var body: some View {
         switch entry {
@@ -73,12 +79,11 @@ struct SessionProcessRow: View {
                         let isDone = (state == .completed)
                         let tint: Color = isWarning ? .orange : (isRunning ? .blue : (isDone ? .teal : .secondary))
                         HStack(spacing: 3) {
-                            if isRunning {
-                                Image(systemName: "circle.fill")
-                                    .font(.system(size: 5))
-                                    .symbolEffect(.pulse, options: .repeating, isActive: !reduceMotion)
-                                    .accessibilityHidden(true)
-                            }
+                            Image(systemName: "circle.fill")
+                                .font(.system(size: 5))
+                                .opacity(isRunning ? 1 : 0)
+                                .symbolEffect(.pulse, options: .repeating, isActive: isRunning && !reduceMotion)
+                                .accessibilityHidden(true)
                             Text(state.label)
                         }
                         .font(.system(size: 10.5, weight: .semibold))
@@ -105,7 +110,7 @@ struct SessionProcessRow: View {
     }
 
     private func isLongText(_ text: String) -> Bool {
-        !isLatest && (text.count > 130 || text.split(separator: "\n", omittingEmptySubsequences: false).count > 3)
+        text.count > 130 || text.split(separator: "\n", omittingEmptySubsequences: false).count > 3
     }
 
     private func summaryLine(_ text: String) -> String {
