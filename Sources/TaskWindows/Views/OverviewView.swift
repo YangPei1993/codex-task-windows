@@ -11,6 +11,7 @@ struct OverviewView: View {
     let open: ([Session]) -> Void
     let tile: () -> Void
     let openInCodex: (Session) -> Void
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var search = ""
     @State private var project = ""
     @State private var scope: Scope = .all
@@ -101,7 +102,7 @@ struct OverviewView: View {
                     .font(.system(size: 20, weight: .bold))
                 HStack(spacing: 8) {
                     statPill(title: "总会话", count: filtered.count, tint: .secondary)
-                    statPill(title: "进行中", count: running.count, tint: .blue, active: running.count > 0)
+                    statPill(title: "进行中", count: running.count, tint: .blue, active: !running.isEmpty, pulses: !running.isEmpty)
                     statPill(title: "已开窗", count: store.watching.count, tint: .teal, active: !store.watching.isEmpty)
                 }
             }
@@ -132,12 +133,14 @@ struct OverviewView: View {
         .padding(.bottom, 14)
     }
 
-    private func statPill(title: String, count: Int, tint: Color, active: Bool = false) -> some View {
+    private func statPill(title: String, count: Int, tint: Color, active: Bool = false, pulses: Bool = false) -> some View {
         HStack(spacing: 4) {
             if active {
-                Circle()
-                    .fill(tint)
-                    .frame(width: 6, height: 6)
+                Image(systemName: "circle.fill")
+                    .font(.system(size: 6))
+                    .foregroundStyle(tint)
+                    .symbolEffect(.pulse, options: .repeating, isActive: pulses && !reduceMotion)
+                    .accessibilityHidden(true)
             }
             Text("\(title) \(count)")
                 .font(.caption.weight(.medium))
@@ -149,6 +152,9 @@ struct OverviewView: View {
         .background(
             (active ? tint.opacity(0.12) : Color.secondary.opacity(0.08)),
             in: Capsule()
+        )
+        .overlay(
+            Capsule().strokeBorder(active ? tint.opacity(0.25) : .clear, lineWidth: 1)
         )
     }
 
@@ -291,6 +297,7 @@ struct OverviewView: View {
                             .padding(.horizontal, 7)
                             .padding(.vertical, 2.5)
                             .background(.teal.opacity(0.12), in: Capsule())
+                            .overlay(Capsule().strokeBorder(.teal.opacity(0.25), lineWidth: 1))
                     }
 
                     StatusBadge(status: session.status, animates: true)

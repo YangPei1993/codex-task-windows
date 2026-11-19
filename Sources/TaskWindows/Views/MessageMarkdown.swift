@@ -5,7 +5,7 @@ struct MessageMarkdown: View, Equatable {
     let source: String
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 11) {
+        VStack(alignment: .leading, spacing: 13) {
             ForEach(MarkdownDocument(source).sections) { section in
                 switch section {
                 case .block(let block): blockView(block)
@@ -56,14 +56,17 @@ struct MessageMarkdown: View, Equatable {
         switch block.kind {
         case .header(let level):
             Text(block.text)
-                .font(.system(size: level <= 2 ? 16.5 : 14, weight: .semibold))
+                .font(.system(size: level <= 2 ? 15.5 : 13.5, weight: .semibold))
+                .padding(.top, 2)
                 .accessibilityAddTraits(.isHeader)
         case .codeBlock(let languageHint):
             MarkdownCodeBlock(text: block.text, language: languageHint)
         case .thematicBreak:
-            Divider().opacity(0.6)
+            Divider().opacity(0.5)
         default:
-            Text(block.text).lineSpacing(3.5)
+            Text(block.text)
+                .lineSpacing(5.5)
+                .foregroundStyle(.primary.opacity(0.92))
         }
     }
 
@@ -186,6 +189,7 @@ private struct MarkdownCodeBlock: View {
                 }
                 .buttonStyle(.plain)
                 .help("复制代码段")
+                .accessibilityLabel("复制代码段")
             }
             .padding(.horizontal, 10)
             .padding(.vertical, 5)

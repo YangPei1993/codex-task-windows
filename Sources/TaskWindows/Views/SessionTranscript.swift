@@ -39,20 +39,20 @@ struct SessionTranscript: View {
                                      activities: activities)
     }
 
-    private func scopeTitle(_ item: Scope, compact: Bool) -> String {
+    private func scopeTitle(_ item: Scope, compact: Bool, activityCount: Int) -> String {
         if compact { return item.rawValue }
         switch item {
         case .latest: return item.rawValue
-        case .process: return process.isEmpty ? item.rawValue : "过程 (\(process.count))"
+        case .process: return activityCount == 0 ? item.rawValue : "过程 (\(activityCount))"
         case .history: return items.isEmpty ? item.rawValue : "全部 (\(items.count))"
         }
     }
 
-    private func toolbar(compact: Bool) -> some View {
+    private func toolbar(compact: Bool, activityCount: Int) -> some View {
         HStack(spacing: 8) {
             Picker("消息范围", selection: $scope) {
                 ForEach(Scope.allCases, id: \.self) { item in
-                    Text(scopeTitle(item, compact: compact)).tag(item)
+                    Text(scopeTitle(item, compact: compact, activityCount: activityCount)).tag(item)
                 }
             }
             .labelsHidden()
@@ -78,6 +78,9 @@ struct SessionTranscript: View {
                         followsLatest ? Color.teal.opacity(0.12) : Color.secondary.opacity(0.08),
                         in: Capsule()
                     )
+                    .overlay(
+                        Capsule().strokeBorder(followsLatest ? Color.teal.opacity(0.25) : .clear, lineWidth: 1)
+                    )
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("跟随最新")
@@ -88,10 +91,11 @@ struct SessionTranscript: View {
     }
 
     var body: some View {
+        let entries = process
         VStack(spacing: 0) {
             ViewThatFits(in: .horizontal) {
-                toolbar(compact: false)
-                toolbar(compact: true)
+                toolbar(compact: false, activityCount: entries.count)
+                toolbar(compact: true, activityCount: entries.count)
             }
             .font(.caption)
             .padding(.horizontal, 15)
@@ -129,13 +133,13 @@ struct SessionTranscript: View {
                     Divider().opacity(0.6)
                 }
                 ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 12) {
+                    LazyVStack(alignment: .leading, spacing: 15) {
                         switch scope {
                         case .latest:
-                            VStack(alignment: .leading, spacing: 12) { latest }
+                            VStack(alignment: .leading, spacing: 15) { latest(activityCount: entries.count) }
                                 .id("latest-top")
                         case .process:
-                            if process.isEmpty {
+                            if entries.isEmpty {
                                 HStack(spacing: 8) {
                                     if running {
                                         ProgressView().controlSize(.small)
@@ -149,12 +153,14 @@ struct SessionTranscript: View {
                                 .frame(maxWidth: .infinity, alignment: .center)
                                 .padding(.vertical, 28)
                             }
-                            ForEach(process) { entry in
-                                SessionProcessRow(entry: entry).id(entry.id)
+                            ForEach(entries) { entry in
+                                SessionProcessRow(entry: entry, isLatest: entry.id == entries.last?.id)
+                                    .id(entry.id)
                             }
                         case .history:
                             ForEach(items) { message in
-                                card(message).id(message.id)
+                                card(message, collapsible: message.id != items.last?.id)
+                                    .id(message.id)
                             }
                         }
                         ForEach(outgoing) { message in
@@ -170,7 +176,7 @@ struct SessionTranscript: View {
                 .onChange(of: items.last?.id) {
                     if scope == .history { moveToLatest(scroll) }
                 }
-                .onChange(of: process.last?.id) {
+                .onChange(of: entries.last?.id) {
                     if scope == .process { moveToLatest(scroll) }
                 }
                 .onChange(of: turnID) {
@@ -192,7 +198,7 @@ struct SessionTranscript: View {
     }
 
     @ViewBuilder
-    private var latest: some View {
+    private func latest(activityCount: Int) -> some View {
         if let question = contextualQuestion {
             card(question, title: question.questionLabel)
             if question.questionContext == .previous {
@@ -206,7 +212,7 @@ struct SessionTranscript: View {
                 HStack(spacing: 8) {
                     Image(systemName: "sparkles.rectangle.stack")
                         .foregroundStyle(.teal)
-                    Text("查看本轮思考与执行过程 (\(process.count))")
+                    Text("查看本轮思考与执行过程 (\(activityCount))")
                         .foregroundStyle(.primary)
                     Spacer()
                     Text("展开")
@@ -221,7 +227,7 @@ struct SessionTranscript: View {
                 .background(Color.teal.opacity(0.08), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
                 .overlay(
                     RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .strokeBorder(Color.teal.opacity(0.2), lineWidth: 1)
+                        .strokeBorder(Color.teal.opacity(0.22), lineWidth: 1)
                 )
             }
             .buttonStyle(.plain)
@@ -262,11 +268,11 @@ struct SessionTranscript: View {
     }
 
     @ViewBuilder
-    private func card(_ message: SessionMessage, title: String? = nil) -> some View {
+    private func card(_ message: SessionMessage, title: String? = nil, collapsible: Bool = false) -> some View {
         if message.kind == .userMessage {
             SessionUserBubble(text: message.text, date: message.date, title: title ?? message.kind.label)
         } else {
-            MessageResponseCard(message: message, title: title ?? message.kind.label)
+            MessageResponseCard(message: message, title: title ?? message.kind.label, collapsible: collapsible)
         }
     }
 
@@ -289,24 +295,52 @@ struct SessionTranscript: View {
 private struct MessageResponseCard: View {
     let message: SessionMessage
     let title: String
+    var collapsible = false
     @State private var copied = false
+    @State private var hovering = false
+    @State private var expanded = false
 
     private var isResult: Bool { message.kind == .result }
 
+    private var isLong: Bool {
+        collapsible && (message.text.count > 160 || message.text.split(separator: "\n", omittingEmptySubsequences: false).count > 4)
+    }
+
+    private var previewText: String {
+        message.text
+            .split(whereSeparator: \.isNewline)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+            .prefix(3)
+            .joined(separator: "\n")
+    }
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 7) {
+        VStack(alignment: .leading, spacing: 9) {
+            HStack(spacing: 6) {
                 Image(systemName: isResult ? "sparkles" : "bolt.horizontal.circle")
                     .font(.system(size: 11, weight: .semibold))
                     .foregroundStyle(isResult ? Color.teal : .secondary)
                 Text(title)
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(isResult ? Color.teal : .secondary)
-                Spacer()
                 Text(Session.friendlyTimestamp(message.date))
                     .font(.caption.monospacedDigit())
                     .foregroundStyle(.secondary)
                     .help(message.date.formatted(date: .abbreviated, time: .standard))
+                Spacer()
+
+                if isLong {
+                    Button(expanded ? "收起" : "展开") {
+                        expanded.toggle()
+                    }
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(.teal)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .background(Color.teal.opacity(0.1), in: Capsule())
+                    .buttonStyle(.plain)
+                }
 
                 Button {
                     NSPasteboard.general.clearContents()
@@ -333,16 +367,39 @@ private struct MessageResponseCard: View {
                 .help("复制消息全文")
                 .accessibilityLabel("复制消息全文")
             }
-            MessageMarkdown(source: message.text).equatable().font(.system(size: 13))
+
+            if isLong && !expanded {
+                Text(verbatim: previewText)
+                    .font(.system(size: 13))
+                    .lineSpacing(5)
+                    .foregroundStyle(.primary.opacity(0.82))
+                    .lineLimit(3)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                Button {
+                    expanded = true
+                } label: {
+                    HStack(spacing: 3) {
+                        Text("展开全文")
+                        Image(systemName: "chevron.down")
+                            .font(.system(size: 9, weight: .bold))
+                    }
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(.teal)
+                }
+                .buttonStyle(.plain)
+            } else {
+                MessageMarkdown(source: message.text).equatable().font(.system(size: 13))
+            }
         }
-        .padding(12)
+        .padding(.horizontal, 13)
+        .padding(.vertical, 12)
         .background(
-            isResult ? Color.teal.opacity(0.05) : Color.secondary.opacity(0.045),
+            isResult ? Color.teal.opacity(0.055) : Color.secondary.opacity(0.045),
             in: RoundedRectangle(cornerRadius: 10, style: .continuous)
         )
         .overlay(
             RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .strokeBorder(isResult ? Color.teal.opacity(0.18) : Color.secondary.opacity(0.12), lineWidth: 1)
+                .strokeBorder(isResult ? Color.teal.opacity(0.22) : Color.secondary.opacity(0.14), lineWidth: 1)
         )
     }
 }

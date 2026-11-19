@@ -38,7 +38,7 @@ struct SessionUserBubble: View {
 
                 Text(verbatim: text)
                     .font(.system(size: 13))
-                    .lineSpacing(3)
+                    .lineSpacing(3.5)
                     .lineLimit(longMessage && !expanded ? 6 : nil)
                     .fixedSize(horizontal: false, vertical: true)
                     .textSelection(.enabled)
@@ -69,7 +69,7 @@ struct SessionUserBubble: View {
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .strokeBorder(.teal.opacity(0.24), lineWidth: 1)
+                    .strokeBorder(.teal.opacity(0.26), lineWidth: 1)
             )
         }
     }

@@ -40,6 +40,9 @@ enum ProcessEntry: Identifiable {
 
 struct SessionProcessRow: View {
     let entry: ProcessEntry
+    var isLatest = true
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var expanded = false
 
     var body: some View {
         switch entry {
@@ -62,20 +65,28 @@ struct SessionProcessRow: View {
 
                     Text(count == 1 ? event.kind.label : "\(event.kind.label) ×\(count)")
                         .fontWeight(.medium)
-                        .foregroundStyle(.primary.opacity(0.85))
+                        .foregroundStyle(.primary.opacity(0.88))
 
                     if let state = event.state {
                         let isWarning = (state == .failed || state == .declined)
+                        let isRunning = (state == .inProgress)
                         let isDone = (state == .completed)
-                        Text(state.label)
-                            .font(.system(size: 10.5, weight: .semibold))
-                            .foregroundStyle(isWarning ? Color.orange : (isDone ? Color.teal : .secondary))
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 1.5)
-                            .background(
-                                (isWarning ? Color.orange : (isDone ? Color.teal : Color.secondary)).opacity(0.12),
-                                in: Capsule()
-                            )
+                        let tint: Color = isWarning ? .orange : (isRunning ? .blue : (isDone ? .teal : .secondary))
+                        HStack(spacing: 3) {
+                            if isRunning {
+                                Image(systemName: "circle.fill")
+                                    .font(.system(size: 5))
+                                    .symbolEffect(.pulse, options: .repeating, isActive: !reduceMotion)
+                                    .accessibilityHidden(true)
+                            }
+                            Text(state.label)
+                        }
+                        .font(.system(size: 10.5, weight: .semibold))
+                        .foregroundStyle(tint)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 1.5)
+                        .background(tint.opacity(0.13), in: Capsule())
+                        .overlay(Capsule().strokeBorder(tint.opacity(0.24), lineWidth: 1))
                     }
                     Spacer(minLength: 4)
                     time(event.date)
@@ -85,26 +96,66 @@ struct SessionProcessRow: View {
                 .padding(.horizontal, 10)
                 .padding(.vertical, 6)
                 .background(Color.secondary.opacity(0.045), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .strokeBorder(Color.secondary.opacity(0.11), lineWidth: 1)
+                )
             }
         }
     }
 
+    private func isLongText(_ text: String) -> Bool {
+        !isLatest && (text.count > 130 || text.split(separator: "\n", omittingEmptySubsequences: false).count > 3)
+    }
+
+    private func summaryLine(_ text: String) -> String {
+        text.split(whereSeparator: \.isNewline)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+            .prefix(2)
+            .joined(separator: " ")
+    }
+
     private func textRow(_ title: String, icon: String, date: Date, text: String) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
+        let shouldCollapse = isLongText(text) && !expanded
+        return VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 6) {
                 Label(title, systemImage: icon)
                     .foregroundStyle(.teal)
                     .font(.caption.weight(.semibold))
                 Spacer()
+                if isLongText(text) {
+                    Button(expanded ? "收起" : "展开") {
+                        expanded.toggle()
+                    }
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(.teal)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .background(Color.teal.opacity(0.1), in: Capsule())
+                    .buttonStyle(.plain)
+                }
                 time(date)
             }
-            MessageMarkdown(source: text).equatable().font(.system(size: 13))
+            if shouldCollapse {
+                Text(verbatim: summaryLine(text))
+                    .font(.system(size: 12.5))
+                    .lineSpacing(4)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(Rectangle())
+                    .onTapGesture { expanded = true }
+            } else {
+                MessageMarkdown(source: text).equatable().font(.system(size: 13))
+            }
         }
-        .padding(11)
-        .background(.secondary.opacity(0.055), in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .background(.secondary.opacity(isLatest ? 0.065 : 0.045), in: RoundedRectangle(cornerRadius: 9, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 9, style: .continuous)
-                .strokeBorder(.secondary.opacity(0.12), lineWidth: 1)
+                .strokeBorder(isLatest ? Color.teal.opacity(0.24) : Color.secondary.opacity(0.13), lineWidth: 1)
         )
     }
 
