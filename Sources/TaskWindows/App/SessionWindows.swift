@@ -3,13 +3,53 @@ import SwiftUI
 
 @MainActor
 final class SessionWindows: NSObject, NSWindowDelegate {
+    private static let openKey = "openSessionIDs"
+    private static let pinnedKey = "pinnedSessionIDs"
+
     private let store: SessionStore
     private var overview: NSWindow?
     private var windows: [String: NSWindow] = [:]
     private var openOrder: [String] = []
+    // 退出过程中窗口关闭不应清掉待恢复的列表。
+    private var terminating = false
 
     init(store: SessionStore) {
         self.store = store
+    }
+
+    /// 上次退出时仍打开的任务窗口（按打开顺序）。
+    var savedSessionIDs: [String] {
+        UserDefaults.standard.stringArray(forKey: Self.openKey) ?? []
+    }
+
+    var hasTaskWindows: Bool { !windows.isEmpty }
+
+    /// 恢复上次的任务窗口和置顶状态；会话已不存在的跳过。
+    func restore(_ ids: [String]) {
+        let pinnedIDs = Set(UserDefaults.standard.stringArray(forKey: Self.pinnedKey) ?? [])
+        let sessions = ids.compactMap { id in store.sessions.first { $0.id == id } }
+        open(sessions)
+        for session in sessions where pinnedIDs.contains(session.id) && !store.pinned.contains(session.id) {
+            setPinned(session.id)
+        }
+        if let overview { reveal(overview) }
+    }
+
+    func prepareForTermination() {
+        // 开窗、关窗和置顶变更已即时保存；首次恢复未完成时保留已有记录。
+        terminating = true
+    }
+
+    func closeAllTaskWindows() {
+        for id in openOrder.reversed() {
+            windows[id]?.performClose(nil)
+        }
+    }
+
+    private func persist() {
+        guard !terminating else { return }
+        UserDefaults.standard.set(openOrder, forKey: Self.openKey)
+        UserDefaults.standard.set(openOrder.filter { store.pinned.contains($0) }, forKey: Self.pinnedKey)
     }
 
     func showOverview() {
@@ -55,16 +95,35 @@ final class SessionWindows: NSObject, NSWindowDelegate {
             accessory.view = statusView
             window.addTitlebarAccessoryViewController(accessory)
             window.identifier = NSUserInterfaceItemIdentifier(session.id)
-            if let previous = openOrder.last.flatMap({ windows[$0] }) {
-                window.cascadeTopLeft(from: .init(x: previous.frame.minX, y: previous.frame.maxY))
-            } else {
-                window.center()
+            // 每个会话记住自己的窗口位置；首次打开时沿用层叠/居中。
+            let frameName = "SessionWindow-\(session.id)"
+            if !window.setFrameUsingName(frameName) {
+                if let previous = openOrder.last.flatMap({ windows[$0] }) {
+                    window.cascadeTopLeft(from: .init(x: previous.frame.minX, y: previous.frame.maxY))
+                } else {
+                    window.center()
+                }
             }
+            window.setFrameAutosaveName(frameName)
             windows[session.id] = window
             openOrder.append(session.id)
             store.startWatching(session.id)
+            persist()
             reveal(window)
         }
+    }
+
+    /// 按会话 ID 前置窗口；窗口已关闭时重新打开。
+    func reveal(sessionID id: String) {
+        if let window = windows[id] {
+            reveal(window)
+        } else if let session = store.sessions.first(where: { $0.id == id }) {
+            open([session])
+        }
+    }
+
+    func isFocused(sessionID id: String) -> Bool {
+        NSApp.isActive && NSApp.keyWindow != nil && NSApp.keyWindow === windows[id]
     }
 
     func windowWillClose(_ notification: Notification) {
@@ -74,6 +133,7 @@ final class SessionWindows: NSObject, NSWindowDelegate {
         windows[id] = nil
         openOrder.removeAll { $0 == id }
         store.stopWatching(id)
+        persist()
     }
 
     func tile() {
@@ -99,7 +159,15 @@ final class SessionWindows: NSObject, NSWindowDelegate {
             }
             pending.removeFirst(count)
         }
-        // 超出屏幕可平铺数量的窗口保留原位置。
+        // 所有屏幕都放不下时，剩余窗口在首选屏幕上层叠排列，避免被遗漏在原位置。
+        guard !pending.isEmpty, let screen = screens.first else { return }
+        var origin = NSPoint(x: screen.visibleFrame.minX + 40, y: screen.visibleFrame.maxY - 40)
+        for window in pending {
+            if window.isMiniaturized { window.deminiaturize(nil) }
+            window.setContentSize(NSSize(width: 520, height: 530))
+            origin = window.cascadeTopLeft(from: origin)
+            window.orderFront(nil)
+        }
     }
 
     private func setPinned(_ id: String) {
@@ -107,6 +175,7 @@ final class SessionWindows: NSObject, NSWindowDelegate {
         let enabled = !store.pinned.contains(id)
         window.level = enabled ? .floating : .normal
         store.setPinned(id, enabled)
+        persist()
     }
 
     private func openInCodex(_ session: Session, from parent: NSWindow? = nil) {

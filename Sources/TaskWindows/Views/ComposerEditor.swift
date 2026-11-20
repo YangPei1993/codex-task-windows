@@ -16,6 +16,8 @@ enum ComposerReturnAction: Equatable {
 
 struct ComposerEditor: NSViewRepresentable {
     @Binding var text: String
+    /// 每次递增表示请求清空；通过文本系统替换以便 ⌘Z 撤销。
+    var clearRequest = 0
     let submit: () -> Void
 
     private static let font = NSFont.systemFont(ofSize: 14)
@@ -44,6 +46,7 @@ struct ComposerEditor: NSViewRepresentable {
         editor.setAccessibilityLabel("会话消息")
         editor.delegate = context.coordinator
         editor.string = text
+        context.coordinator.handledClearRequest = clearRequest
 
         let scroll = NSScrollView(frame: .zero)
         scroll.drawsBackground = false
@@ -58,6 +61,20 @@ struct ComposerEditor: NSViewRepresentable {
         guard let editor = scroll.documentView as? Editor else { return }
         context.coordinator.binding = $text
         editor.submit = submit
+        if context.coordinator.handledClearRequest != clearRequest {
+            context.coordinator.handledClearRequest = clearRequest
+            // 异步执行，避免在 SwiftUI 视图更新过程中回写绑定。
+            DispatchQueue.main.async {
+                let range = NSRange(location: 0, length: (editor.string as NSString).length)
+                if !editor.hasMarkedText(), editor.shouldChangeText(in: range, replacementString: "") {
+                    editor.replaceCharacters(in: range, with: "")
+                    // didChangeText 会登记撤销并通过 textDidChange 回写绑定。
+                    editor.didChangeText()
+                }
+                editor.window?.makeFirstResponder(editor)
+            }
+            return
+        }
         if editor.string != text, !editor.hasMarkedText() {
             let caret = min(editor.selectedRange().location, (text as NSString).length)
             editor.string = text
@@ -88,6 +105,7 @@ struct ComposerEditor: NSViewRepresentable {
 
     final class Coordinator: NSObject, NSTextViewDelegate {
         var binding: Binding<String>
+        var handledClearRequest = 0
 
         init(binding: Binding<String>) { self.binding = binding }
 

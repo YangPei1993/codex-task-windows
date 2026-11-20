@@ -16,6 +16,21 @@ struct OverviewView: View {
     @State private var project = ""
     @State private var scope: Scope = .all
     @State private var selection: Set<String> = []
+    @State private var pendingOpen: [Session] = []
+    @State private var confirmingOpen = false
+
+    /// 一次新开窗口超过该数量时先确认，避免屏幕瞬间被铺满。
+    private static let confirmThreshold = 6
+
+    private func requestOpen(_ sessions: [Session]) {
+        let newCount = sessions.filter { !store.watching.contains($0.id) }.count
+        if newCount > Self.confirmThreshold {
+            pendingOpen = sessions
+            confirmingOpen = true
+        } else {
+            open(sessions)
+        }
+    }
 
     private var projects: [String] {
         Set(store.sessions.map(\.project)).sorted { $0.localizedStandardCompare($1) == .orderedAscending }
@@ -65,6 +80,23 @@ struct OverviewView: View {
         }
         .frame(minWidth: 640, minHeight: 440)
         .tint(.teal)
+        .confirmationDialog(
+            "将打开 \(pendingOpen.filter { !store.watching.contains($0.id) }.count) 个新窗口",
+            isPresented: $confirmingOpen
+        ) {
+            Button("打开并平铺") {
+                open(pendingOpen)
+                tile()
+                pendingOpen = []
+            }
+            Button("仅打开") {
+                open(pendingOpen)
+                pendingOpen = []
+            }
+            Button("取消", role: .cancel) { pendingOpen = [] }
+        } message: {
+            Text("窗口较多时建议平铺排列，之后也可以按 ⌘2 重新平铺。")
+        }
         .background {
             // 隐藏快捷键触发⌘F快速聚焦搜索框
             Button("") { isSearchFocused = true }
@@ -103,7 +135,7 @@ struct OverviewView: View {
                 HStack(spacing: 8) {
                     statPill(title: "总会话", count: filtered.count, tint: .secondary)
                     statPill(title: "进行中", count: running.count, tint: .blue, active: !running.isEmpty, pulses: !running.isEmpty)
-                    statPill(title: "已开窗", count: store.watching.count, tint: .teal, active: !store.watching.isEmpty)
+                    statPill(title: "已开窗", count: openSessions.count, tint: .teal, active: !openSessions.isEmpty)
                 }
             }
             Spacer()
@@ -115,7 +147,7 @@ struct OverviewView: View {
             .help("平铺已打开的任务窗口（⌘2）")
 
             Button {
-                open(selected.isEmpty ? running : selected)
+                requestOpen(selected.isEmpty ? running : selected)
             } label: {
                 Label(
                     selected.isEmpty ? "打开进行中 (\(running.count))" : "打开所选 (\(selected.count))",
@@ -165,7 +197,7 @@ struct OverviewView: View {
                 Image(systemName: "magnifyingglass")
                     .font(.system(size: 13, weight: .medium))
                     .foregroundStyle(isSearchFocused ? .teal : .secondary)
-                TextField("搜索标题、项目或任务关键字 (⌘F)", text: $search)
+                TextField("搜索标题或项目 (⌘F)", text: $search)
                     .textFieldStyle(.plain)
                     .font(.system(size: 13))
                     .focused($isSearchFocused)
@@ -290,16 +322,6 @@ struct OverviewView: View {
 
                     Spacer(minLength: 8)
 
-                    if isWatching {
-                        Text("已开窗")
-                            .font(.system(size: 10.5, weight: .semibold))
-                            .foregroundStyle(.teal)
-                            .padding(.horizontal, 7)
-                            .padding(.vertical, 2.5)
-                            .background(.teal.opacity(0.12), in: Capsule())
-                            .overlay(Capsule().strokeBorder(.teal.opacity(0.25), lineWidth: 1))
-                    }
-
                     StatusBadge(status: session.status, animates: true)
 
                     Text(Session.friendlyTimestamp(session.sortDate))
@@ -331,7 +353,7 @@ struct OverviewView: View {
         .contextMenu(forSelectionType: String.self) { ids in
             let targets = visible.filter { ids.contains($0.id) }
             Button(ids.count <= 1 ? "打开独立窗口" : "打开所选（\(ids.count)）") {
-                open(targets)
+                requestOpen(targets)
             }
             .disabled(targets.isEmpty)
             if targets.count == 1, let item = targets.first {
@@ -345,7 +367,7 @@ struct OverviewView: View {
                 }
             }
         } primaryAction: { ids in
-            open(visible.filter { ids.contains($0.id) })
+            requestOpen(visible.filter { ids.contains($0.id) })
         }
     }
 

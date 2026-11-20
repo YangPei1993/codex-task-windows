@@ -3,6 +3,7 @@ import SwiftUI
 struct SessionComposer: View {
     @Bindable var draft: SessionDraft
     let submit: () -> Void
+    @State private var clearRequest = 0
 
     private var hasText: Bool {
         !draft.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -10,21 +11,21 @@ struct SessionComposer: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            ComposerEditor(text: $draft.text, submit: send)
+            ComposerEditor(text: $draft.text, clearRequest: clearRequest, submit: send)
                 .frame(maxWidth: .infinity)
             HStack(spacing: 8) {
                 status
                 Spacer(minLength: 0)
                 if hasText && !draft.sending {
                     Button {
-                        draft.text = ""
+                        clearRequest += 1
                     } label: {
                         Text("清空")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
                     .buttonStyle(.plain)
-                    .help("清空当前草稿")
+                    .help("清空当前草稿（可按 ⌘Z 撤销）")
                 }
                 Button(action: send) {
                     HStack(spacing: 4) {

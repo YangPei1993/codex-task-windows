@@ -14,6 +14,10 @@ final class SessionStore {
     private(set) var error: String?
     private(set) var refreshing = false
     private var drafts: [String: SessionDraft] = [:]
+    // 启动时为恢复窗口预先加入监看、但尚未真正开窗的会话。
+    private var preloaded: Set<String> = []
+    private static let draftsKey = "unsentDrafts"
+    private static let draftLimit = 50
 
     nonisolated static var codexDirectory: URL {
         if let directory = ProcessInfo.processInfo.environment["CODEX_HOME"], !directory.isEmpty {
@@ -22,7 +26,19 @@ final class SessionStore {
         return FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".codex", isDirectory: true)
     }
 
+    func preloadWatching(_ ids: [String]) {
+        preloaded = Set(ids)
+        watching.formUnion(ids)
+    }
+
+    /// 恢复完成后，移除未能重新开窗的预加载会话。
+    func releasePreloaded() {
+        for id in preloaded { stopWatching(id) }
+        preloaded.removeAll()
+    }
+
     func startWatching(_ id: String) {
+        preloaded.remove(id)
         watching.insert(id)
         requestRefresh()
     }
@@ -41,8 +57,27 @@ final class SessionStore {
     func draft(for id: String) -> SessionDraft {
         if let existing = drafts[id] { return existing }
         let draft = SessionDraft()
+        // 恢复上次退出时未发送的草稿。
+        draft.text = savedDrafts[id] ?? ""
         drafts[id] = draft
         return draft
+    }
+
+    private var savedDrafts: [String: String] {
+        UserDefaults.standard.dictionary(forKey: Self.draftsKey) as? [String: String] ?? [:]
+    }
+
+    /// 退出时保存未发送草稿；尚未打开过的会话沿用之前保存的内容。
+    func persistDrafts() {
+        var saved = savedDrafts
+        for (id, draft) in drafts {
+            let text = draft.text
+            saved[id] = text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : text
+        }
+        if saved.count > Self.draftLimit {
+            saved = Dictionary(uniqueKeysWithValues: saved.prefix(Self.draftLimit).map { ($0.key, $0.value) })
+        }
+        UserDefaults.standard.set(saved, forKey: Self.draftsKey)
     }
 
     func requestRefresh() {

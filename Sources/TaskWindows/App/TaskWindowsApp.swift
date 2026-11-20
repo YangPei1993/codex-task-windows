@@ -47,15 +47,28 @@ enum TaskWindowsApp {
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     private let store = SessionStore()
     private lazy var windows = SessionWindows(store: store)
+    private let notifier = StatusNotifier()
+    private var pendingRestore: [String]?
     private var refreshLoop: Task<Void, Never>?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         installMenus()
         windows.showOverview()
         NSApp.activate(ignoringOtherApps: true)
+        notifier.activate = { [weak self] id in self?.windows.reveal(sessionID: id) }
+        notifier.isFocused = { [weak self] id in self?.windows.isFocused(sessionID: id) == true }
+        // 先把上次的窗口加入监看，使超出最近 400 条的会话也能被查询到，首次刷新成功后再恢复窗口。
+        pendingRestore = windows.savedSessionIDs
+        store.preloadWatching(pendingRestore ?? [])
         refreshLoop = Task {
             while !Task.isCancelled {
                 await store.refresh()
+                if let ids = pendingRestore, store.lastRefresh != nil {
+                    pendingRestore = nil
+                    windows.restore(ids)
+                    store.releasePreloaded()
+                }
+                notifier.observe(store.sessions, watching: store.watching)
                 do { try await Task.sleep(for: .seconds(3)) } catch { break }
             }
         }
@@ -66,13 +79,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         return false
     }
 
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        windows.prepareForTermination()
+        store.persistDrafts()
+        return .terminateNow
+    }
+
     func applicationWillTerminate(_ notification: Notification) {
         refreshLoop?.cancel()
     }
 
     @objc private func showOverview() { windows.showOverview() }
     @objc private func tileWindows() { windows.tile() }
+    @objc private func closeAllTaskWindows() { windows.closeAllTaskWindows() }
     @objc private func refresh() { store.requestRefresh() }
+    @objc private func toggleNotifications() { notifier.isEnabled.toggle() }
     @objc private func undoEdit() { editingUndoManager?.undo() }
     @objc private func redoEdit() { editingUndoManager?.redo() }
 
@@ -81,9 +102,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     }
 
     func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
-        switch menuItem.action {
+        if menuItem.action == #selector(toggleNotifications) {
+            menuItem.state = notifier.isEnabled ? .on : .off
+        }
+        return switch menuItem.action {
         case #selector(undoEdit): editingUndoManager?.canUndo == true
         case #selector(redoEdit): editingUndoManager?.canRedo == true
+        case #selector(tileWindows), #selector(closeAllTaskWindows): windows.hasTaskWindows
         default: true
         }
     }
@@ -99,6 +124,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
         let appMenu = NSMenu()
         appItem.submenu = appMenu
+        appMenu.addItem(withTitle: "任务结束时通知", action: #selector(toggleNotifications), keyEquivalent: "").target = self
+        appMenu.addItem(.separator())
         appMenu.addItem(withTitle: "退出会话窗口", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
 
         let editMenu = NSMenu(title: "编辑")
@@ -120,6 +147,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         windowMenu.addItem(withTitle: "刷新", action: #selector(refresh), keyEquivalent: "r").target = self
         windowMenu.addItem(.separator())
         windowMenu.addItem(withTitle: "关闭窗口", action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w")
+        let closeAll = windowMenu.addItem(withTitle: "关闭全部任务窗口", action: #selector(closeAllTaskWindows), keyEquivalent: "w")
+        closeAll.keyEquivalentModifierMask = [.command, .option]
+        closeAll.target = self
         windowMenu.addItem(withTitle: "最小化", action: #selector(NSWindow.performMiniaturize(_:)), keyEquivalent: "m")
         NSApp.windowsMenu = windowMenu
         NSApp.mainMenu = bar

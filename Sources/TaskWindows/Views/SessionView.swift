@@ -35,7 +35,7 @@ struct SessionView: View {
             } else {
                 SessionTranscript(items: items, activities: activities, outgoing: draft.outbox.messages,
                                   turnID: session.currentTurnID,
-                                  running: session.status == .running)
+                                  status: session.status, openInCodex: openInCodex)
             }
             Divider().opacity(0.6)
             composer
@@ -91,19 +91,30 @@ struct SessionView: View {
                 .help(session.title)
 
             if let activity = session.activity, let action = session.lastAction {
-                HStack(spacing: 5) {
-                    Image(systemName: "waveform.path")
-                        .font(.system(size: 10, weight: .semibold))
-                        .foregroundStyle(session.status == .running ? session.status.tint : .secondary)
-                    Text("\(action) · \(Session.friendlyTimestamp(activity))")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
+                // 每 5 秒刷新相对时间，进行中时额外显示本轮已运行时长，便于判断是否卡住。
+                TimelineView(.periodic(from: .now, by: 5)) { context in
+                    HStack(spacing: 5) {
+                        Image(systemName: "waveform.path")
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundStyle(session.status == .running ? session.status.tint : .secondary)
+                        Text(activityLine(action: action, activity: activity, now: context.date))
+                            .font(.caption)
+                            .monospacedDigit()
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+                    .help(activity.formatted(date: .abbreviated, time: .standard))
                 }
             }
         }
         .padding(.horizontal, 15)
         .padding(.vertical, 11)
+    }
+
+    private func activityLine(action: String, activity: Date, now: Date) -> String {
+        let recent = "\(action) · \(Session.relativeText(activity, now: now))"
+        guard session.status == .running, let started = session.started else { return recent }
+        return "已运行 \(Session.elapsedText(since: started, now: now)) · \(recent)"
     }
 
     private var emptyTranscript: some View {

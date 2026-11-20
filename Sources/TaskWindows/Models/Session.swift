@@ -30,6 +30,24 @@ struct Session: Identifiable {
             return date.formatted(.dateTime.month().day().hour().minute())
         }
     }
+
+    /// 本轮已运行时长，如「45 秒」「12 分」「1 小时 5 分」。
+    static func elapsedText(since start: Date, now: Date = .now) -> String {
+        let seconds = max(0, Int(now.timeIntervalSince(start)))
+        if seconds < 60 { return "\(seconds) 秒" }
+        let minutes = seconds / 60
+        if minutes < 60 { return "\(minutes) 分" }
+        return minutes % 60 == 0 ? "\(minutes / 60) 小时" : "\(minutes / 60) 小时 \(minutes % 60) 分"
+    }
+
+    /// 最近活动的相对时间；超过一小时退回到绝对时间。
+    static func relativeText(_ date: Date, now: Date = .now) -> String {
+        let seconds = Int(now.timeIntervalSince(date))
+        if seconds < 10 { return "刚刚" }
+        if seconds < 60 { return "\(seconds) 秒前" }
+        if seconds < 3600 { return "\(seconds / 60) 分钟前" }
+        return friendlyTimestamp(date)
+    }
 }
 
 enum SessionStatus {

@@ -18,9 +18,23 @@ final class SessionDraft {
 
     var text = ""
     private(set) var sending = false
-    private(set) var feedback: Feedback?
+    private(set) var feedback: Feedback? {
+        didSet { scheduleFeedbackClear() }
+    }
     private(set) var outbox = SessionOutbox()
     private var lastSubmittedID: UUID?
+    private var feedbackClearTask: Task<Void, Never>?
+
+    /// 「已进入原会话」只是确认提示，几秒后自动消失，恢复输入提示；排队和失败提示保持到状态变化。
+    private func scheduleFeedbackClear() {
+        feedbackClearTask?.cancel()
+        guard case .received = feedback else { return }
+        feedbackClearTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(4))
+            guard !Task.isCancelled, let self, case .received = self.feedback else { return }
+            self.feedback = nil
+        }
+    }
 
     var canSend: Bool {
         !sending && !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty

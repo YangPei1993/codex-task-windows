@@ -8,23 +8,57 @@ struct SessionTranscript: View {
         case history = "全部消息"
     }
 
+    /// 与 CodexFeed 中「全部消息」查询的 LIMIT 保持一致。
+    static let historyLimit = 30
+
     let items: [SessionMessage]
     let activities: [TurnActivity]
     let outgoing: [OutgoingMessage]
     let turnID: String?
-    let running: Bool
+    let status: SessionStatus
+    var openInCodex: (() -> Void)?
     @State private var scope: Scope
     @State private var followsLatest = true
     @State private var priorExpanded = false
+    // 用户本轮手动切换过页签后，不再根据状态自动切换，避免打断阅读。
+    @State private var scopeChosenByUser = false
+    @State private var atBottom = true
+    @State private var unseenCount = 0
+
+    private var running: Bool { status == .running }
 
     init(items: [SessionMessage], activities: [TurnActivity], outgoing: [OutgoingMessage],
-         turnID: String?, running: Bool) {
+         turnID: String?, status: SessionStatus, openInCodex: (() -> Void)? = nil) {
         self.items = items
         self.activities = activities
         self.outgoing = outgoing
         self.turnID = turnID
-        self.running = running
-        _scope = State(initialValue: running ? .process : .latest)
+        self.status = status
+        self.openInCodex = openInCodex
+        _scope = State(initialValue: status == .running ? .process : .latest)
+    }
+
+    private var userScope: Binding<Scope> {
+        Binding(get: { scope }, set: { selectScope($0, byUser: true) })
+    }
+
+    private func selectScope(_ value: Scope, byUser: Bool) {
+        if byUser { scopeChosenByUser = true }
+        guard scope != value else { return }
+        scope = value
+        unseenCount = 0
+        followsLatest = true
+    }
+
+    /// 进行中默认看「过程」，本轮结束（完成/失败/中断）后切回「对话」展示结果；
+    /// 「待确认」「暂无状态」不确定是否结束，保持当前页签。
+    private func autoSelectScope() {
+        guard !scopeChosenByUser else { return }
+        switch status {
+        case .running: selectScope(.process, byUser: false)
+        case .completed, .failed, .interrupted: selectScope(.latest, byUser: false)
+        case .uncertain, .unknown: break
+        }
     }
 
     private var currentTurn: [SessionMessage] { items.filter { $0.turnID == (turnID ?? items.last?.turnID) } }
@@ -50,7 +84,7 @@ struct SessionTranscript: View {
 
     private func toolbar(compact: Bool, activityCount: Int) -> some View {
         HStack(spacing: 8) {
-            Picker("消息范围", selection: $scope) {
+            Picker("消息范围", selection: userScope) {
                 ForEach(Scope.allCases, id: \.self) { item in
                     Text(scopeTitle(item, compact: compact, activityCount: activityCount)).tag(item)
                 }
@@ -160,6 +194,9 @@ struct SessionTranscript: View {
                                     .id(entry.id)
                             }
                         case .history:
+                            if items.count >= Self.historyLimit {
+                                historyLimitNotice
+                            }
                             ForEach(items) { message in
                                 card(message, collapsible: true, initiallyExpanded: message.id == items.last?.id)
                                     .id(message.id)
@@ -173,18 +210,35 @@ struct SessionTranscript: View {
                     .padding(.horizontal, 15)
                     .padding(.vertical, 12)
                 }
+                .modifier(ManualScrollTracker(enabled: scope != .latest,
+                                              followsLatest: $followsLatest, atBottom: $atBottom))
+                .overlay(alignment: .bottom) {
+                    if scope != .latest, !followsLatest, unseenCount > 0 || !atBottom {
+                        jumpToLatestButton
+                            .padding(.bottom, 10)
+                            .transition(.move(edge: .bottom).combined(with: .opacity))
+                    }
+                }
+                .animation(.easeOut(duration: 0.18), value: followsLatest)
                 .onChange(of: scope, initial: true) { moveToLatest(scroll) }
-                .onChange(of: followsLatest) { moveToLatest(scroll) }
+                .onChange(of: followsLatest) {
+                    if followsLatest { unseenCount = 0 }
+                    moveToLatest(scroll)
+                }
                 .onChange(of: items.last?.id) {
-                    if scope == .history { moveToLatest(scroll) }
+                    if scope == .history { noteNewContent(scroll) }
                 }
                 .onChange(of: entries.last?.id) {
-                    if scope == .process { moveToLatest(scroll) }
+                    if scope == .process { noteNewContent(scroll) }
                 }
                 .onChange(of: turnID) {
                     priorExpanded = false
+                    // 新一轮开始时重新允许自动切换页签。
+                    scopeChosenByUser = false
+                    autoSelectScope()
                     if scope == .latest { moveToLatest(scroll) }
                 }
+                .onChange(of: status) { autoSelectScope() }
                 .onChange(of: outgoing.last?.id) { _, new in
                     if let new {
                         scroll.scrollTo(new, anchor: .bottom)
@@ -209,7 +263,7 @@ struct SessionTranscript: View {
         }
         if !progress.isEmpty || !activities.isEmpty {
             Button {
-                scope = .process
+                selectScope(.process, byUser: true)
             } label: {
                 HStack(spacing: 8) {
                     Image(systemName: "sparkles.rectangle.stack")
@@ -280,6 +334,49 @@ struct SessionTranscript: View {
         }
     }
 
+    private func noteNewContent(_ scroll: ScrollViewProxy) {
+        if followsLatest {
+            moveToLatest(scroll)
+        } else {
+            unseenCount += 1
+        }
+    }
+
+    private var jumpToLatestButton: some View {
+        Button {
+            followsLatest = true
+        } label: {
+            HStack(spacing: 5) {
+                Image(systemName: "arrow.down")
+                    .font(.system(size: 10, weight: .bold))
+                Text(unseenCount > 0 ? "\(unseenCount) 条新内容" : "回到最新")
+            }
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(.white)
+            .padding(.horizontal, 11)
+            .padding(.vertical, 5)
+            .background(Color.teal, in: Capsule())
+            .shadow(color: .black.opacity(0.15), radius: 4, y: 1)
+        }
+        .buttonStyle(.plain)
+        .help("滚动到最新内容并恢复自动跟随")
+        .accessibilityLabel(unseenCount > 0 ? "有 \(unseenCount) 条新内容，回到最新" : "回到最新")
+    }
+
+    private var historyLimitNotice: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "info.circle")
+            Text("仅显示最近 \(Self.historyLimit) 条文本消息")
+            Spacer(minLength: 4)
+            if let openInCodex {
+                Button("在 Codex 查看完整记录", action: openInCodex)
+                    .buttonStyle(.link)
+            }
+        }
+        .font(.caption)
+        .foregroundStyle(.secondary)
+    }
+
     private func moveToLatest(_ scroll: ScrollViewProxy) {
         if let pending = outgoing.last, scope == .latest || followsLatest {
             scroll.scrollTo(pending.id, anchor: .bottom)
@@ -292,6 +389,39 @@ struct SessionTranscript: View {
             if followsLatest, let id = process.last?.id { scroll.scrollTo(id, anchor: .bottom) }
         case .history:
             if followsLatest, let id = items.last?.id { scroll.scrollTo(id, anchor: .top) }
+        }
+    }
+}
+
+/// 用户手动上滚时自动暂停「跟随最新」，滚回底部后恢复。
+/// 只响应手势滚动；程序滚动和内容增长不会改变跟随状态。macOS 14 保持原有的手动开关行为。
+private struct ManualScrollTracker: ViewModifier {
+    let enabled: Bool
+    @Binding var followsLatest: Bool
+    @Binding var atBottom: Bool
+    @State private var userScrolling = false
+
+    func body(content: Content) -> some View {
+        if #available(macOS 15.0, *) {
+            content
+                .onScrollGeometryChange(for: Bool.self) { geometry in
+                    geometry.visibleRect.maxY >= geometry.contentSize.height - 28
+                } action: { _, isBottom in
+                    atBottom = isBottom
+                    if enabled, userScrolling, !isBottom, followsLatest {
+                        followsLatest = false
+                    }
+                }
+                .onScrollPhaseChange { _, phase in
+                    let scrolling = phase == .tracking || phase == .interacting || phase == .decelerating
+                    // 手势结束时停在底部，则恢复跟随。
+                    if enabled, userScrolling, !scrolling, atBottom, !followsLatest {
+                        followsLatest = true
+                    }
+                    userScrolling = scrolling
+                }
+        } else {
+            content
         }
     }
 }
